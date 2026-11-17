@@ -3,8 +3,11 @@ name: Build
 on:
   push:
     branches: [main]
-  pull_request:
   workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   # Build natif rapide sur Arch x86_64 : vérifie la compilation sans émulation.
@@ -31,76 +34,69 @@ jobs:
           path: build/wine-mobile-launcher
           if-no-files-found: error
 
-  # Cible principale : Arch Linux ARM (aarch64) via PKGBUILD, dans un chroot
-  # ALARM émulé avec QEMU (les runners GitHub sont x86_64).
+  # Cible principale : Arch Linux ARM (aarch64) via PKGBUILD.
+  # Le rootfs ALARM est importé comme image Docker et exécuté sous QEMU
+  # (binfmt enregistré par docker/setup-qemu-action, indépendant de l'image
+  # Ubuntu du runner et de ses paquets qemu-*).
   alarm-aarch64:
-    name: PKGBUILD Arch Linux ARM (aarch64, QEMU)
+    name: PKGBUILD Arch Linux ARM (aarch64, QEMU/Docker)
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
     env:
       WML_COMMIT: ${{ github.sha }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Installer QEMU et les outils de chroot
-        run: |
-          sudo apt-get update
-          # Sur les images récentes, qemu-user-static est un paquet virtuel
-          # (fourni par qemu-user-binfmt / qemu-user-binfmt-hwe).
-          sudo apt-get install -y qemu-user-binfmt arch-install-scripts \
-            || sudo apt-get install -y qemu-user-static arch-install-scripts
-          # Vérification stricte : l'émulation aarch64 doit être enregistrée.
-          test -e /proc/sys/fs/binfmt_misc/qemu-aarch64 \
-            || { echo "binfmt aarch64 non enregistré"; exit 1; }
+      - name: Enregistrer l'émulation aarch64 (binfmt)
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
 
-      - name: Télécharger le rootfs Arch Linux ARM (aarch64)
+      - name: Télécharger et importer le rootfs Arch Linux ARM
         run: |
           curl -fL --retry 3 -o /tmp/alarm-rootfs.tar.gz \
             http://os.archlinuxarm.org/os/ArchLinuxARM-aarch64-latest.tar.gz
+          docker import /tmp/alarm-rootfs.tar.gz alarm:rootfs
 
-      - name: Extraire le rootfs
+      # Étape lente (mise à jour complète + Qt6 sous émulation) : isolée dans
+      # une image dérivée via docker commit, pour séparer les échecs.
+      - name: Préparer l'image ALARM (pacman + dépendances)
         run: |
-          sudo mkdir -p /opt/alarm
-          sudo tar -xpf /tmp/alarm-rootfs.tar.gz -C /opt/alarm --numeric-owner
+          docker run --name alarm-prep alarm:rootfs bash -euc '
+            sed -i "s/^CheckSpace/#CheckSpace/" /etc/pacman.conf
+            pacman-key --init
+            pacman-key --populate archlinuxarm
+            pacman -Syu --noconfirm
+            pacman -S --noconfirm --needed base-devel git cmake qt6-base qt6-declarative kirigami
+          '
+          docker commit alarm-prep alarm:build
+          docker rm alarm-prep
 
-      - name: Préparer pacman dans le chroot
-        run: |
-          # CheckSpace échoue sous chroot émulé : désactivé, sans risque pour le build
-          sudo sed -i 's/^CheckSpace/#CheckSpace/' /opt/alarm/etc/pacman.conf
-          sudo arch-chroot /opt/alarm pacman-key --init
-          sudo arch-chroot /opt/alarm pacman-key --populate archlinuxarm
-          sudo arch-chroot /opt/alarm pacman -Syu --noconfirm
-          sudo arch-chroot /opt/alarm pacman -S --noconfirm --needed \
-            base-devel git cmake qt6-base qt6-declarative kirigami
-
-      - name: Préparer le dossier de build (makepkg refuse root)
-        run: |
-          sudo arch-chroot /opt/alarm useradd -m builduser
-          sudo mkdir -p /home/builduser/build
-          sudo cp packaging/arch/PKGBUILD /home/builduser/build/PKGBUILD
-          sudo chown -R builduser:builduser /home/builduser/build
-
-      - name: Valider le PKGBUILD (.SRCINFO)
-        run: |
-          sudo arch-chroot /opt/alarm su -l builduser \
-            -c "cd /home/builduser/build && makepkg --printsrcinfo" | tee .SRCINFO
-
+      # makepkg refuse root : tout se fait via l'utilisateur builduser.
+      # WML_COMMIT (sha du push) est passé au PKGBUILD pour fixer le commit.
       - name: makepkg (aarch64)
         run: |
-          sudo arch-chroot /opt/alarm su -l builduser \
-            -c "export WML_COMMIT='${WML_COMMIT}'; cd /home/builduser/build && makepkg -f --noconfirm"
+          mkdir -p artifacts
+          docker run --rm \
+            -e WML_COMMIT \
+            -v "$PWD:/work:ro" \
+            -v "$PWD/artifacts:/out" \
+            alarm:build bash -euc '
+              useradd -m builduser
+              mkdir -p /home/builduser/build
+              cp /work/packaging/arch/PKGBUILD /home/builduser/build/PKGBUILD
+              chown -R builduser:builduser /home/builduser/build
+              cd /home/builduser/build
+              su -l builduser -c "cd ~/build && makepkg --printsrcinfo > /out/.SRCINFO"
+              su -l builduser -c "cd ~/build && makepkg -f --noconfirm"
+              cp -v /home/builduser/build/*.pkg.tar.* /out/
+            '
 
-      - name: Collecter les artefacts
-        run: |
-          mkdir -p dist
-          sudo cp /opt/alarm/home/builduser/build/*.pkg.tar.* dist/ || true
-          sudo chown -R "$(id -u):$(id -g)" dist
-          ls -la dist
+      - name: Lister les artefacts
+        run: ls -la artifacts
 
       - uses: actions/upload-artifact@v4
         with:
           name: pkg-alarm-aarch64
-          path: |
-            dist/*.pkg.tar.*
-            .SRCINFO
+          path: artifacts/*
           if-no-files-found: error
