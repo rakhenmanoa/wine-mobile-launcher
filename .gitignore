@@ -1,5 +1,7 @@
 skills/
 node_modules/
+.env
+db/
 .deploy-key/
 scripts/
 upload/
