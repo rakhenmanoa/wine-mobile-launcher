@@ -1,8 +1,11 @@
 # Maintainer: rakhenmanoa <rakhenmanoa@users.noreply.github.com>
 # Build local (sur ALARM/Arch) : cd packaging/arch && makepkg -f
-# En CI : WML_COMMIT est exporté par .github/workflows/build.yml pour fixer le commit.
+# En CI : WML_COMMIT (sha du tag) et WML_PKGVER (tag sans son « v ») sont
+# exportés par .github/workflows/build.yml — chaque tag de version produit
+# un paquet à la version du tag, et sa GitHub Release. En local (makepkg
+# direct), la version par défaut s'applique.
 pkgname=wine-mobile-launcher
-pkgver=0.1.0
+pkgver="${WML_PKGVER:-0.1.0}"
 pkgrel=2
 pkgdesc="Lanceur d'applications Windows (Wine) pour Plasma Mobile, style Lutris (Qt6/Kirigami)"
 arch=('x86_64' 'aarch64')

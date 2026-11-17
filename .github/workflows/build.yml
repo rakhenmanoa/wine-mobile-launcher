@@ -1,9 +1,18 @@
 name: Build
 
+# Ne compile QUE les versions publiées : un tag vX.Y.Z (major/minor/patch).
+# Les pushes sur main ne déclenchent plus rien. Chaque tag produit sa
+# GitHub Release, nouvelle à chaque fois, avec les paquets attachés.
+# workflow_dispatch permet un build de test manuel (sans release).
 on:
   push:
-    branches: [main]
+    tags:
+      - 'v*.*.*'
   workflow_dispatch:
+
+# contents: write : le job release crée la GitHub Release et y attache les paquets.
+permissions:
+  contents: write
 
 concurrency:
   group: build-${{ github.ref }}
@@ -94,12 +103,19 @@ jobs:
           docker rm alarm-prep
 
       # makepkg refuse root : tout se fait via l'utilisateur builduser.
-      # WML_COMMIT (sha du push) est passé au PKGBUILD pour fixer le commit.
+      # WML_COMMIT (sha du tag) fixe le commit source ; WML_PKGVER (tag sans
+      # son « v ») versionne le paquet d'après la version publiée. Sur un
+      # run manuel (branche), WML_PKGVER reste vide : le PKGBUILD garde sa
+      # valeur par défaut.
       - name: makepkg (aarch64)
         run: |
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            export WML_PKGVER="${GITHUB_REF_NAME#v}"
+          fi
           mkdir -p artifacts
           docker run --rm \
             -e WML_COMMIT \
+            -e WML_PKGVER \
             -v "$PWD:/work:ro" \
             -v "$PWD/artifacts:/out" \
             alarm:build bash -euc '
@@ -121,3 +137,30 @@ jobs:
           name: pkg-alarm-aarch64
           path: artifacts/*
           if-no-files-found: error
+
+  # Publication : une GitHub Release par tag, avec le paquet ALARM
+  # (installable) et le binaire x86_64 de vérification. Nouvelle release à
+  # chaque nouveau tag — jamais de réécrasement d'une version publiée.
+  release:
+    name: Publication de la GitHub Release
+    needs: [native-x86_64, alarm-aarch64]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Récupérer les artefacts des deux builds
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Rassembler les fichiers à publier
+        run: |
+          mkdir -p release
+          cp -v artifacts/pkg-alarm-aarch64/*.pkg.tar.* release/
+          cp -v artifacts/wine-mobile-launcher-x86_64/wine-mobile-launcher \
+            "release/wine-mobile-launcher-${GITHUB_REF_NAME#v}-x86_64"
+          ls -la release
+
+      - name: Créer la release et y joindre les paquets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
