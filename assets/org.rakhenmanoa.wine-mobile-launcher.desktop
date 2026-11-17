@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Wine Mobile Launcher
+GenericName=Lanceur Wine
+Comment=Gérez et lancez vos applications Windows via Wine, avec des préfixes isolés
+Exec=wine-mobile-launcher
+Icon=org.rakhenmanoa.wine-mobile-launcher
+Categories=Game;Utility;Emulator;
+Terminal=false
+Keywords=wine;windows;launcher;games;jeux;

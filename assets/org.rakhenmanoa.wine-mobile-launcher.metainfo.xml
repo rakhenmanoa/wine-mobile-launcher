@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>org.rakhenmanoa.wine-mobile-launcher</id>
+  <name>Wine Mobile Launcher</name>
+  <summary>Lanceur d'applications Windows (Wine) pour Plasma Mobile</summary>
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT</project_license>
+  <developer_name>rakhenmanoa</developer_name>
+  <description>
+    <p>Un lanceur léger, inspiré de Lutris, conçu pour Plasma Mobile et les interfaces tactiles.</p>
+    <p>Il permet de constituer une bibliothèque d'applications Windows, de leur associer un préfixe Wine isolé (un « C: » virtuel par jeu), puis de les lancer et de les arrêter directement depuis l'application, avec un journal d'exécution intégré.</p>
+  </description>
+  <launchable type="desktop-id">org.rakhenmanoa.wine-mobile-launcher.desktop</launchable>
+  <provides>
+    <binary>wine-mobile-launcher</binary>
+  </provides>
+  <releases>
+    <release version="0.1.0" date="2026-11-17">
+      <description>
+        <p>Version initiale : bibliothèque de jeux, préfixes Wine isolés, lancement/arrêt, journal, paramètres.</p>
+      </description>
+    </release>
+  </releases>
+  <content_rating type="oars-1.1"/>
+</component>
