@@ -1,5 +1,7 @@
 # Wine Mobile Launcher
 
+![Build](https://github.com/rakhenmanoa/wine-mobile-launcher/actions/workflows/build.yml/badge.svg)
+
 Un lanceur d'applications Windows (Wine) léger, dans l'esprit de **Lutris**, conçu pour **Plasma Mobile** et les écrans tactiles. Interface **Qt 6 / QML / Kirigami**.
 
 ## Fonctionnalités (v0.1)
@@ -40,6 +42,23 @@ cmake --build build
 # Ou installation système :
 sudo cmake --install build
 ```
+
+## Packaging Arch Linux / Arch Linux ARM
+
+Un [PKGBUILD](packaging/arch/PKGBUILD) est fourni, ciblé `aarch64` (ALARM) et `x86_64`. Les dépendances listées existent dans le dépôt `extra` d'ALARM pour aarch64 : `qt6-base`, `qt6-declarative`, `kirigami`, `qqc2-desktop-style`, `breeze-icons`.
+
+**Sur un appareil ALARM / Arch** :
+
+```bash
+cd packaging/arch
+makepkg -f
+sudo pacman -U wine-mobile-launcher-*.pkg.tar.zst
+```
+
+**En CI (GitHub Actions)** : le workflow [build.yml](.github/workflows/build.yml) tourne à chaque push et fournit deux jobs :
+
+- **Build natif Arch x86_64** (conteneur `archlinux:base-devel`) : vérification rapide de la compilation ;
+- **Paquet ALARM aarch64** : chroot ALARM émulé avec QEMU (`qemu-user-static` + binfmt), puis `makepkg` avec le PKGBUILD — le commit compilé est fixé par la variable `WML_COMMIT` (`source=(...#commit=...)`), donc l'artefact correspond toujours au push qui l'a déclenché. Les `.pkg.tar.zst` et le `.SRCINFO` sont déposés en artefacts téléchargeables dans la page du run.
 
 ## Utilisation
 

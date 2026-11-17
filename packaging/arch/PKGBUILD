@@ -1,0 +1,28 @@
+# Maintainer: rakhenmanoa <rakhenmanoa@users.noreply.github.com>
+# Build local (sur ALARM/Arch) : cd packaging/arch && makepkg -f
+# En CI : WML_COMMIT est exporté par .github/workflows/build.yml pour fixer le commit.
+pkgname=wine-mobile-launcher
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Lanceur d'applications Windows (Wine) pour Plasma Mobile, style Lutris (Qt6/Kirigami)"
+arch=('x86_64' 'aarch64')
+url="https://github.com/rakhenmanoa/wine-mobile-launcher"
+license=('MIT')
+depends=('qt6-base' 'qt6-declarative' 'kirigami' 'qqc2-desktop-style' 'breeze-icons')
+optdepends=('wine: executer les applications Windows'
+            'winetricks: composants de prefixes (integration UI a venir)')
+makedepends=('git' 'cmake' 'qt6-base' 'qt6-declarative')
+source=("git+${url}.git#commit=${WML_COMMIT:-HEAD}")
+md5sums=('SKIP')
+
+build() {
+    cmake -B "$pkgname-build" -S "$srcdir/$pkgname" \
+        -DCMAKE_BUILD_TYPE=Release
+    cmake --build "$pkgname-build" --parallel "$(nproc)"
+}
+
+package() {
+    DESTDIR="$pkgdir" cmake --install "$pkgname-build"
+    install -Dm644 "$srcdir/$pkgname/LICENSE" \
+        "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

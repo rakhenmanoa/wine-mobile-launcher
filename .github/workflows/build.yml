@@ -1,0 +1,100 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  # Build natif rapide sur Arch x86_64 : vérifie la compilation sans émulation.
+  native-x86_64:
+    name: Build natif (Arch x86_64)
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:base-devel
+    steps:
+      - name: Préparer le conteneur
+        run: |
+          pacman -Syu --noconfirm git cmake qt6-base qt6-declarative
+
+      - uses: actions/checkout@v4
+
+      - name: Compiler
+        run: |
+          cmake -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel "$(nproc)"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wine-mobile-launcher-x86_64
+          path: build/wine-mobile-launcher
+          if-no-files-found: error
+
+  # Cible principale : Arch Linux ARM (aarch64) via PKGBUILD, dans un chroot
+  # ALARM émulé avec QEMU (les runners GitHub sont x86_64).
+  alarm-aarch64:
+    name: PKGBUILD Arch Linux ARM (aarch64, QEMU)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      WML_COMMIT: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Installer QEMU et les outils de chroot
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-user-static binfmt-support arch-install-scripts
+
+      - name: Télécharger le rootfs Arch Linux ARM (aarch64)
+        run: |
+          curl -fL --retry 3 -o /tmp/alarm-rootfs.tar.gz \
+            http://os.archlinuxarm.org/os/ArchLinuxARM-aarch64-latest.tar.gz
+
+      - name: Extraire le rootfs
+        run: |
+          sudo mkdir -p /opt/alarm
+          sudo tar -xpf /tmp/alarm-rootfs.tar.gz -C /opt/alarm --numeric-owner
+
+      - name: Préparer pacman dans le chroot
+        run: |
+          # CheckSpace échoue sous chroot émulé : désactivé, sans risque pour le build
+          sudo sed -i 's/^CheckSpace/#CheckSpace/' /opt/alarm/etc/pacman.conf
+          sudo arch-chroot /opt/alarm pacman-key --init
+          sudo arch-chroot /opt/alarm pacman-key --populate archlinuxarm
+          sudo arch-chroot /opt/alarm pacman -Syu --noconfirm
+          sudo arch-chroot /opt/alarm pacman -S --noconfirm --needed \
+            base-devel git cmake qt6-base qt6-declarative kirigami
+
+      - name: Préparer le dossier de build (makepkg refuse root)
+        run: |
+          sudo arch-chroot /opt/alarm useradd -m builduser
+          sudo mkdir -p /home/builduser/build
+          sudo cp packaging/arch/PKGBUILD /home/builduser/build/PKGBUILD
+          sudo chown -R builduser:builduser /home/builduser/build
+
+      - name: Valider le PKGBUILD (.SRCINFO)
+        run: |
+          sudo arch-chroot /opt/alarm su -l builduser \
+            -c "cd /home/builduser/build && makepkg --printsrcinfo" | tee .SRCINFO
+
+      - name: makepkg (aarch64)
+        run: |
+          sudo arch-chroot /opt/alarm su -l builduser \
+            -c "export WML_COMMIT='${WML_COMMIT}'; cd /home/builduser/build && makepkg -f --noconfirm"
+
+      - name: Collecter les artefacts
+        run: |
+          mkdir -p dist
+          sudo cp /opt/alarm/home/builduser/build/*.pkg.tar.* dist/ || true
+          sudo chown -R "$(id -u):$(id -g)" dist
+          ls -la dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pkg-alarm-aarch64
+          path: |
+            dist/*.pkg.tar.*
+            .SRCINFO
+          if-no-files-found: error
