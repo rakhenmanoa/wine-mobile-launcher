@@ -16,8 +16,30 @@ source=("git+${url}.git#commit=${WML_COMMIT:-HEAD}")
 md5sums=('SKIP')
 
 build() {
+    # -DQT_DEBUG_FIND_PACKAGE + --debug-find-pkg=Qt6Quick : diagnostics
+    # temporaires — l'umbrella Qt6 masque le vrai message d'échec d'un
+    # composant (le NOT_FOUND_MESSAGE du composant n'apparaît pas dans son
+    # rapport). A retirer une fois la cause confirmée.
     cmake -B "$pkgname-build" -S "$srcdir/$pkgname" \
-        -DCMAKE_BUILD_TYPE=Release
+        -DCMAKE_BUILD_TYPE=Release \
+        -DQT_DEBUG_FIND_PACKAGE=ON \
+        --debug-find-pkg=Qt6Quick \
+    || {
+        # Sonde composant par composant dans le conteneur réel : chaque
+        # ligne affiche FOUND et le message d'échec réel de la dépendance.
+        mkdir -p /tmp/wmlprobe
+        cat > /tmp/wmlprobe/CMakeLists.txt <<'PROBE'
+cmake_minimum_required(VERSION 3.21)
+project(wmlprobe LANGUAGES CXX)
+set(CMAKE_PREFIX_PATH "/usr")
+foreach(c IN ITEMS Core Gui Network OpenGL Qml QmlModels QmlMeta QmlWorkerScript QmlTools QuickTools Quick QuickControls2)
+  find_package(Qt6${c} 6.8 QUIET CONFIG)
+  message(STATUS "PROBE Qt6${c}: FOUND=[${Qt6${c}_FOUND}] MSG=[${Qt6${c}_NOT_FOUND_MESSAGE}]")
+endforeach()
+PROBE
+        cmake -S /tmp/wmlprobe -B /tmp/wmlprobe/build || true
+        return 1
+    }
     cmake --build "$pkgname-build" --parallel "$(nproc)"
 }
 
