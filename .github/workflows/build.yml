@@ -63,11 +63,27 @@ jobs:
       - name: Préparer l'image ALARM (pacman + dépendances)
         run: |
           docker run --name alarm-prep alarm:rootfs bash -euc '
+            # Landlock est indisponible dans ce conteneur : pacman (6.1+) refuse
+            # de télécharger tant que son sandbox de téléchargement est actif.
+            if pacman --disable-sandbox --version >/dev/null 2>&1; then
+              PACMAN_OPTS="--disable-sandbox"
+            else
+              # pacman 6.1 (sans le flag) : désactivation via la configuration.
+              PACMAN_OPTS=""
+              sed -i "s/^#\?SandboxUser.*/SandboxUser = root/" /etc/pacman.conf
+              grep -q "^SandboxUser" /etc/pacman.conf || printf "\nSandboxUser = root\n" >> /etc/pacman.conf
+            fi
             sed -i "s/^CheckSpace/#CheckSpace/" /etc/pacman.conf
             pacman-key --init
             pacman-key --populate archlinuxarm
-            pacman -Syu --noconfirm
-            pacman -S --noconfirm --needed base-devel git cmake qt6-base qt6-declarative kirigami
+            pacman $PACMAN_OPTS -Syu --noconfirm
+            # -Syu a pu remplacer pacman (6.1 -> 7.x) : re-tester le flag et
+            # retirer une directive devenue inconnue pour la nouvelle version.
+            if pacman --disable-sandbox --version >/dev/null 2>&1; then
+              PACMAN_OPTS="--disable-sandbox"
+              sed -i "s/^SandboxUser.*//" /etc/pacman.conf
+            fi
+            pacman $PACMAN_OPTS -S --noconfirm --needed base-devel git cmake qt6-base qt6-declarative kirigami
           '
           docker commit alarm-prep alarm:build
           docker rm alarm-prep
