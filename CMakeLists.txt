@@ -6,16 +6,17 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 
-find_package(Qt6 6.5 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2)
+find_package(Qt6 6.8 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2)
 
-qt_standard_project_setup()
-
-# QTP0001 (Qt >= 6.8) : préfixe de ressources :/qt/qml/ — main.cpp charge déjà
-# ce chemin (qrc:/qt/qml/...). QTP0004 : qmldir par répertoire de QML_FILES.
-if(QT6_VERSION VERSION_GREATER_EQUAL "6.8")
-    qt_policy(SET QTP0001 NEW)
-    qt_policy(SET QTP0004 NEW)
-endif()
+# REQUIRES 6.8 : pose QTP0001..QTP0005 en NEW. QTP0001 est crucial : il place
+# le module sous /qt/qml/, exactement là où main.cpp charge main.qml
+# (qrc:/qt/qml/org/rakhenmanoa/wineLauncher/qml/main.qml — le sous-répertoire
+# qml/ est conservé d'après la doc qt_add_qml_module). Sans policy, le
+# préfixe par défaut est / et le binaire ne trouve plus son QML au démarrage.
+# NB : qt_standard_project_setup() sans REQUIRES ne pose AUCUNE policy, et
+# QT6_VERSION n'est pas renseigné par find_package(Qt6) — d'où un garde
+# if(QT6_VERSION ...) qui ne se déclenchait jamais.
+qt_standard_project_setup(REQUIRES 6.8)
 
 qt_add_executable(wine-mobile-launcher src/main.cpp)
 
