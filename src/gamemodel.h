@@ -6,6 +6,8 @@
 #include <QSet>
 #include <QString>
 #include <QVariantMap>
+// QML_ELEMENT est défini par QtQml (qqmlintegration.h), pas par QtCore.
+#include <QtQml>
 
 // Une entrée de la bibliothèque : une application Windows lancée via Wine.
 struct WineGame {

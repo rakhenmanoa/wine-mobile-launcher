@@ -7,6 +7,8 @@
 #include <QString>
 #include <QUrl>
 #include <QVariantMap>
+// QML_SINGLETON / QML_ELEMENT sont définis par QtQml (qqmlintegration.h), pas par QtCore.
+#include <QtQml>
 
 #include "gamemodel.h"
 
