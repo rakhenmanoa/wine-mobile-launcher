@@ -165,7 +165,7 @@ Kirigami.Page {
             }
         }
 
-        ScrollView {
+        QQC2.ScrollView {
             Layout.fillWidth: true
             Layout.fillHeight: true
 
