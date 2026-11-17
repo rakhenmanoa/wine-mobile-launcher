@@ -13,6 +13,7 @@
 #include <QRegularExpression>
 #include <QSaveFile>
 #include <QStandardPaths>
+#include <QStringList>
 #include <QUuid>
 
 GameManager::GameManager(QObject *parent)

@@ -45,7 +45,13 @@ jobs:
       - name: Installer QEMU et les outils de chroot
         run: |
           sudo apt-get update
-          sudo apt-get install -y qemu-user-static binfmt-support arch-install-scripts
+          # Sur les images récentes, qemu-user-static est un paquet virtuel
+          # (fourni par qemu-user-binfmt / qemu-user-binfmt-hwe).
+          sudo apt-get install -y qemu-user-binfmt arch-install-scripts \
+            || sudo apt-get install -y qemu-user-static arch-install-scripts
+          # Vérification stricte : l'émulation aarch64 doit être enregistrée.
+          test -e /proc/sys/fs/binfmt_misc/qemu-aarch64 \
+            || { echo "binfmt aarch64 non enregistré"; exit 1; }
 
       - name: Télécharger le rootfs Arch Linux ARM (aarch64)
         run: |
