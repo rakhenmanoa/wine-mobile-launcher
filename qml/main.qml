@@ -7,8 +7,8 @@ Kirigami.ApplicationWindow {
     id: root
 
     title: "Wine Mobile Launcher"
-    minimumWidth: Kirigami.units.gridUnit * 16
-    minimumHeight: Kirigami.units.gridUnit * 22
+    minimumWidth: Kirigami.Units.gridUnit * 16
+    minimumHeight: Kirigami.Units.gridUnit * 22
 
     globalDrawer: Kirigami.GlobalDrawer {
         title: "Wine Mobile Launcher"

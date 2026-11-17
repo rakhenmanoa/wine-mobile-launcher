@@ -31,26 +31,26 @@ Kirigami.Page {
 
         anchors.fill: parent
         clip: true
-        spacing: Kirigami.units.smallSpacing * 2
-        topMargin: Kirigami.units.smallSpacing * 2
-        bottomMargin: Kirigami.units.smallSpacing * 2
+        spacing: Kirigami.Units.smallSpacing * 2
+        topMargin: Kirigami.Units.smallSpacing * 2
+        bottomMargin: Kirigami.Units.smallSpacing * 2
         model: GameManager.model
 
         delegate: Kirigami.AbstractCard {
             width: ListView.view.width
 
             contentItem: RowLayout {
-                spacing: Kirigami.units.largeSpacing
+                spacing: Kirigami.Units.largeSpacing
 
                 Kirigami.Icon {
-                    Layout.preferredWidth: Kirigami.units.iconSizes.medium
-                    Layout.preferredHeight: Kirigami.units.iconSizes.medium
+                    Layout.preferredWidth: Kirigami.Units.iconSizes.medium
+                    Layout.preferredHeight: Kirigami.Units.iconSizes.medium
                     source: model.icon !== "" ? model.icon : "applications-games"
                 }
 
                 ColumnLayout {
                     Layout.fillWidth: true
-                    spacing: Kirigami.units.smallSpacing
+                    spacing: Kirigami.Units.smallSpacing
 
                     QQC2.Label {
                         Layout.fillWidth: true
@@ -85,7 +85,7 @@ Kirigami.Page {
 
         Kirigami.PlaceholderMessage {
             anchors.centerIn: parent
-            width: parent.width - Kirigami.units.gridUnit * 4
+            width: parent.width - Kirigami.Units.gridUnit * 4
             visible: listView.count === 0
             icon.name: "applications-games-symbolic"
             text: "Aucun jeu dans la bibliothèque"

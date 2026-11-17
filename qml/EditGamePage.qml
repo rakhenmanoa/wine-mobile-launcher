@@ -65,8 +65,8 @@ Kirigami.Page {
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: Kirigami.units.largeSpacing
-        spacing: Kirigami.units.largeSpacing
+        anchors.margins: Kirigami.Units.largeSpacing
+        spacing: Kirigami.Units.largeSpacing
 
         Kirigami.InlineMessage {
             id: formError
@@ -98,7 +98,7 @@ Kirigami.Page {
             RowLayout {
                 Kirigami.FormData.label: "Exécutable (.exe) :"
                 Layout.fillWidth: true
-                spacing: Kirigami.units.smallSpacing
+                spacing: Kirigami.Units.smallSpacing
 
                 QQC2.TextField {
                     id: exeField
@@ -123,7 +123,7 @@ Kirigami.Page {
             RowLayout {
                 Kirigami.FormData.label: "Préfixe Wine :"
                 Layout.fillWidth: true
-                spacing: Kirigami.units.smallSpacing
+                spacing: Kirigami.Units.smallSpacing
 
                 QQC2.TextField {
                     id: prefixField
@@ -140,7 +140,7 @@ Kirigami.Page {
             RowLayout {
                 Kirigami.FormData.label: "Binaire Wine :"
                 Layout.fillWidth: true
-                spacing: Kirigami.units.smallSpacing
+                spacing: Kirigami.Units.smallSpacing
 
                 QQC2.TextField {
                     id: wineField
@@ -157,11 +157,11 @@ Kirigami.Page {
             RowLayout {
                 Kirigami.FormData.label: "Icône :"
                 Layout.fillWidth: true
-                spacing: Kirigami.units.smallSpacing
+                spacing: Kirigami.Units.smallSpacing
 
                 Kirigami.Icon {
-                    Layout.preferredWidth: Kirigami.units.iconSizes.smallMedium
-                    Layout.preferredHeight: Kirigami.units.iconSizes.smallMedium
+                    Layout.preferredWidth: Kirigami.Units.iconSizes.smallMedium
+                    Layout.preferredHeight: Kirigami.Units.iconSizes.smallMedium
                     source: iconField.text !== "" ? iconField.text : "applications-games"
                 }
                 QQC2.TextField {
@@ -179,7 +179,7 @@ Kirigami.Page {
 
         RowLayout {
             Layout.fillWidth: true
-            spacing: Kirigami.units.smallSpacing
+            spacing: Kirigami.Units.smallSpacing
 
             QQC2.Button {
                 text: root.prefixCreating ? "Création du préfixe…" : "Créer / initialiser ce préfixe"

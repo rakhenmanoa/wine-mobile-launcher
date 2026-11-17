@@ -80,8 +80,8 @@ Kirigami.Page {
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: Kirigami.units.largeSpacing
-        spacing: Kirigami.units.largeSpacing
+        anchors.margins: Kirigami.Units.largeSpacing
+        spacing: Kirigami.Units.largeSpacing
 
         Kirigami.InlineMessage {
             id: launchMsg
@@ -130,11 +130,11 @@ Kirigami.Page {
 
         RowLayout {
             Layout.fillWidth: true
-            spacing: Kirigami.units.largeSpacing
+            spacing: Kirigami.Units.largeSpacing
 
             QQC2.Button {
                 Layout.fillWidth: true
-                Layout.preferredHeight: Kirigami.units.gridUnit * 2.5
+                Layout.preferredHeight: Kirigami.Units.gridUnit * 2.5
                 text: "Jouer"
                 icon.name: "media-playback-start"
                 highlighted: true
@@ -143,7 +143,7 @@ Kirigami.Page {
             }
             QQC2.Button {
                 Layout.fillWidth: true
-                Layout.preferredHeight: Kirigami.units.gridUnit * 2.5
+                Layout.preferredHeight: Kirigami.Units.gridUnit * 2.5
                 text: "Arrêter"
                 icon.name: "media-playback-stop"
                 enabled: root.game !== null && root.game.running

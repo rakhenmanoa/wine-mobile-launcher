@@ -45,8 +45,8 @@ Kirigami.Page {
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: Kirigami.units.largeSpacing
-        spacing: Kirigami.units.largeSpacing
+        anchors.margins: Kirigami.Units.largeSpacing
+        spacing: Kirigami.Units.largeSpacing
 
         Kirigami.InlineMessage {
             id: savedMsg
@@ -70,7 +70,7 @@ Kirigami.Page {
             RowLayout {
                 Kirigami.FormData.label: "Binaire Wine par défaut :"
                 Layout.fillWidth: true
-                spacing: Kirigami.units.smallSpacing
+                spacing: Kirigami.Units.smallSpacing
 
                 QQC2.TextField {
                     id: wineField
@@ -91,7 +91,7 @@ Kirigami.Page {
             RowLayout {
                 Kirigami.FormData.label: "Dossier des préfixes :"
                 Layout.fillWidth: true
-                spacing: Kirigami.units.smallSpacing
+                spacing: Kirigami.Units.smallSpacing
 
                 QQC2.TextField {
                     id: prefixField
