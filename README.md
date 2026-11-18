@@ -9,8 +9,9 @@ Un lanceur d'applications Windows (Wine) léger, dans l'esprit de **Lutris**, co
 - **Bibliothèque de jeux** : liste de vos applications Windows (.exe, .msi, .bat, .lnk), avec icône, exécutable et préfixe
 - **Préfixes Wine isolés** : un « C: » virtuel par jeu (comme Lutris) ; création en un clic via `wineboot -i`, ou préfixe automatique nommé d'après le jeu
 - **Lancement / arrêt** : lance le jeu avec `WINEPREFIX` correctement défini ; bouton Arrêter (envoie `wineserver -k` au préfixe du jeu)
-- **Binaire Wine configurable** : système (`wine`) ou personnalisé (Wine-GE, Proton…), avec détection automatique
+- **Runner configurable** : Wine système (`wine`), binaire personnalisé (Wine-GE…) ou **GE-Proton / Proton** (y compris les builds **aarch64**), avec détection automatique
 - **Journal intégré** : sortie stdout/stderr de Wine consultable depuis la page du jeu
+- **Journal verbose** : si l'option est cochée, le journal est aussi recopié dans le terminal et enregistré dans `~/.local/share/wine-mobile-launcher/wine-mobile-launcher.log` (rotation à 5 Mo)
 - **Persistance** : bibliothèque en JSON dans `~/.local/share/wine-mobile-launcher/` (chemin AppData standard)
 
 ## Dépendances
@@ -60,6 +61,17 @@ sudo pacman -U wine-mobile-launcher-*.pkg.tar.zst
 - **Build natif Arch x86_64** (conteneur `archlinux:base-devel`) : vérification rapide de la compilation ;
 - **Paquet ALARM aarch64** : rootfs ALARM importé comme image Docker et exécuté sous QEMU (`docker/setup-qemu-action` pour l'émulation, indépendant des paquets qemu-* de l'image runner), avec `makepkg` et le PKGBUILD — le commit compilé est fixé par la variable `WML_COMMIT` (`source=(...#commit=...)`), donc l'artefact correspond toujours au push qui l'a déclenché. Les `.pkg.tar.zst` et le `.SRCINFO` sont déposés en artefacts téléchargeables dans la page du run.
 
+## GE-Proton (aarch64)
+
+Dans **Paramètres** (ou par jeu, dans la fiche d'édition), indiquez le **dossier GE-Proton extrait** (celui qui contient le script `proton` et `files/`) via le bouton dossier. Le launcher détecte alors Proton et :
+
+- lance le jeu avec `python3 <dossier>/proton run jeu.exe` (`STEAM_COMPAT_DATA_PATH` = préfixe du jeu, `STEAM_COMPAT_CLIENT_INSTALL_PATH` défini, `PROTONFIXES_DISABLE=1`) ;
+- utilise le sous-dossier `pfx/` du préfixe du jeu comme `WINEPREFIX` réel ; « Créer le préfixe » passe aussi par `proton run wineboot` ;
+- arrête le jeu avec le `wineserver -k` du dossier GE-Proton ;
+- avertit dans le journal si le runner est un binaire x86_64 sur un hôte aarch64 (il faut alors box64/FEX, ou une build GE-Proton aarch64).
+
+`python3` doit être installé. Aucun runtime Steam / pressure-vessel n'est utilisé.
+
 ## Utilisation
 
 1. **Ajouter un jeu** : bouton « Ajouter un jeu » → nom, exécutable `.exe` (sélecteur de fichiers), préfixe Wine (laisser vide pour un préfixe automatique)
@@ -80,7 +92,7 @@ assets/                 icône SVG, .desktop, metainfo (AppStream)
 ## Limitations connues (v0.1)
 
 - Les jeux lancés sont suivis par le launcher : si celui-ci est fermé, les processus enfants sont arrêtés (limite QProcess ; une version détachée est prévue)
-- Pas encore de gestion des runners Lutris (installation de Wine-GE, Proton), ni de winetricks graphique
+- Pas encore de téléchargement automatique des runners (Wine-GE, GE-Proton à extraire manuellement), ni de winetricks graphique
 - Non packagé Flatpak ; sous Flatpak, le lancement de Wine hôte nécessiterait `flatpak-spawn --host`
 
 ## Feuille de route

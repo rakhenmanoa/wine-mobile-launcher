@@ -15,6 +15,11 @@
     <binary>wine-mobile-launcher</binary>
   </provides>
   <releases>
+    <release version="0.2.0" date="2026-11-18">
+      <description>
+        <p>Support de GE-Proton / Proton (y compris aarch64) ; le mode verbose enregistre aussi le journal dans un fichier.</p>
+      </description>
+    </release>
     <release version="0.1.0" date="2026-11-17">
       <description>
         <p>Version initiale : bibliothèque de jeux, préfixes Wine isolés, lancement/arrêt, journal, paramètres.</p>

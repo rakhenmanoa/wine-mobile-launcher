@@ -16,6 +16,7 @@
 #include <QSaveFile>
 #include <QStandardPaths>
 #include <QStringList>
+#include <QSysInfo>
 #include <QUuid>
 
 GameManager::GameManager(QObject *parent)
@@ -59,6 +60,8 @@ void GameManager::setVerboseTerminal(bool verbose)
     m_verboseTerminal = verbose;
     m_settings.setValue(QStringLiteral("verboseTerminal"), verbose);
     Q_EMIT verboseTerminalChanged();
+    if (verbose)
+        appendLog(QStringLiteral("Journal verbose activé — enregistrement dans ") + logFilePath());
 }
 
 QString GameManager::libraryFile() const
@@ -127,23 +130,203 @@ void GameManager::saveLibrary()
         appendLog(QStringLiteral("Erreur d'écriture de la bibliothèque : ") + file.errorString());
 }
 
-QString GameManager::resolveWine(const QString &overrideBinary) const
+namespace {
+
+// Racine d'un dossier GE-Proton/Proton si `info` en désigne un (le dossier
+// lui-même, ou son script « proton »), sinon chaîne vide.
+QString protonRootFor(const QFileInfo &info)
 {
-    const QStringList candidates = {overrideBinary, m_defaultWineBinary, QStringLiteral("wine")};
-    for (const QString &candidate : candidates) {
-        if (candidate.isEmpty())
-            continue;
-        const QFileInfo info(candidate);
-        if (info.isAbsolute()) {
-            if (info.exists() && info.isFile())
-                return candidate;
-            continue;
-        }
-        const QString found = QStandardPaths::findExecutable(candidate);
-        if (!found.isEmpty())
-            return found;
+    if (info.isDir()) {
+        const QString dir = QDir::cleanPath(info.absoluteFilePath());
+        if (QFileInfo(dir + QStringLiteral("/proton")).isFile())
+            return dir;
+    } else if (info.isFile() && info.fileName() == QLatin1String("proton")) {
+        return QDir::cleanPath(info.absolutePath());
     }
     return {};
+}
+
+// Dossier bin de Proton : « files/bin » (GE-Proton, Proton récent) ou
+// « dist/bin » (anciennes versions).
+QString protonBinDir(const QString &root)
+{
+    for (const char *sub : {"/files/bin", "/dist/bin"}) {
+        const QString dir = root + QLatin1String(sub);
+        if (QFileInfo(dir).isDir())
+            return dir;
+    }
+    return {};
+}
+
+// Architecture (e_machine) d'un binaire ELF, ou -1 si illisible.
+int elfMachine(const QString &path)
+{
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly))
+        return -1;
+    const QByteArray head = file.read(20);
+    if (head.size() < 20 || !head.startsWith("\x7f" "ELF"))
+        return -1;
+    return static_cast<unsigned char>(head[18])
+           | (static_cast<unsigned char>(head[19]) << 8);
+}
+
+} // namespace
+
+GameManager::Runner GameManager::resolveRunner(const QString &overrideBinary) const
+{
+    QString firstError;
+    const QStringList candidates = {overrideBinary, m_defaultWineBinary, QStringLiteral("wine")};
+    for (QString candidate : candidates) {
+        candidate = candidate.trimmed();
+        if (candidate.isEmpty())
+            continue;
+        if (candidate == QLatin1String("~") || candidate.startsWith(QLatin1String("~/")))
+            candidate = QDir::homePath() + candidate.mid(1);
+
+        QString path;
+        if (QFileInfo(candidate).isAbsolute()) {
+            if (!QFileInfo::exists(candidate))
+                continue;
+            path = candidate;
+        } else {
+            path = QStandardPaths::findExecutable(candidate);
+            if (path.isEmpty())
+                continue;
+        }
+        const QFileInfo info(path);
+
+        // GE-Proton / Proton : dossier racine ou script « proton ».
+        const QString root = protonRootFor(info);
+        if (!root.isEmpty()) {
+            if (protonBinDir(root).isEmpty()) {
+                if (firstError.isEmpty())
+                    firstError = QStringLiteral("Dossier Proton invalide (files/bin introuvable) : ")
+                                 + root;
+                continue;
+            }
+            Runner runner;
+            runner.kind = Runner::Kind::Proton;
+            runner.root = root;
+            runner.program = root + QStringLiteral("/proton");
+            return runner;
+        }
+
+        if (info.isFile()) {
+            Runner runner;
+            runner.kind = Runner::Kind::Wine;
+            runner.program = path;
+            return runner;
+        }
+        if (firstError.isEmpty())
+            firstError = QStringLiteral("Ni binaire Wine ni dossier Proton : ") + candidate;
+    }
+    Runner none;
+    none.error = firstError;
+    return none;
+}
+
+QString GameManager::runnerWineserver(const Runner &runner) const
+{
+    if (runner.kind == Runner::Kind::Proton) {
+        const QString candidate = protonBinDir(runner.root) + QStringLiteral("/wineserver");
+        return QFileInfo::exists(candidate) ? candidate : QString();
+    }
+    if (runner.kind == Runner::Kind::Wine) {
+        // Le wineserver voisin du binaire doit correspondre à sa version
+        // (Wine-GE, etc.) ; le wineserver système n'est qu'un repli.
+        const QString sibling = QFileInfo(runner.program).absolutePath()
+                                + QStringLiteral("/wineserver");
+        if (QFileInfo::exists(sibling))
+            return sibling;
+    }
+    return QStandardPaths::findExecutable(QStringLiteral("wineserver"));
+}
+
+// Préfixe Wine réel : avec Proton, le dossier choisi est STEAM_COMPAT_DATA_PATH
+// et Proton place le préfixe dans « pfx/ ».
+QString GameManager::effectiveWinePrefix(const Runner &runner, const QString &prefix) const
+{
+    return runner.kind == Runner::Kind::Proton ? prefix + QStringLiteral("/pfx") : prefix;
+}
+
+QProcessEnvironment GameManager::runnerEnvironment(const Runner &runner,
+                                                   const QString &prefix) const
+{
+    QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+    // Mode verbose : laisser Wine afficher ses canaux err/fixme (diagnostic
+    // complet dans le journal et le terminal) ; sinon, sortie silencieuse.
+    if (!m_verboseTerminal)
+        env.insert(QStringLiteral("WINEDEBUG"), QStringLiteral("-all"));
+
+    if (runner.kind != Runner::Kind::Proton) {
+        env.insert(QStringLiteral("WINEPREFIX"), prefix);
+        return env;
+    }
+
+    env.insert(QStringLiteral("STEAM_COMPAT_DATA_PATH"), prefix);
+    if (!env.contains(QStringLiteral("STEAM_COMPAT_CLIENT_INSTALL_PATH"))) {
+        // Proton exige cette variable ; sans Steam, un dossier existant suffit.
+        QString steam;
+        for (const QString &c : {QDir::homePath() + QStringLiteral("/.steam/steam"),
+                                 QDir::homePath() + QStringLiteral("/.local/share/Steam")}) {
+            if (QFileInfo(c).isDir()) {
+                steam = c;
+                break;
+            }
+        }
+        env.insert(QStringLiteral("STEAM_COMPAT_CLIENT_INSTALL_PATH"),
+                   steam.isEmpty() ? runner.root : steam);
+    }
+    // Hors Steam : pas d'identifiant de jeu, et on évite les correctifs
+    // protonfixes (réseau / base umu) qui n'ont pas de sens ici.
+    if (!env.contains(QStringLiteral("SteamGameId")))
+        env.insert(QStringLiteral("SteamGameId"), QStringLiteral("0"));
+    if (!env.contains(QStringLiteral("SteamAppId")))
+        env.insert(QStringLiteral("SteamAppId"), QStringLiteral("0"));
+    if (!env.contains(QStringLiteral("PROTONFIXES_DISABLE")))
+        env.insert(QStringLiteral("PROTONFIXES_DISABLE"), QStringLiteral("1"));
+    return env;
+}
+
+// Construit la commande : renvoie le programme à lancer et remplit `arguments`
+// (Wine : <payload> ; Proton : python3 proton run <payload>).
+QString GameManager::runnerCommand(const Runner &runner, const QStringList &payload,
+                                   QStringList &arguments) const
+{
+    arguments.clear();
+    if (runner.kind == Runner::Kind::Proton) {
+        const QString python = QStandardPaths::findExecutable(QStringLiteral("python3"));
+        arguments << runner.program << QStringLiteral("run") << payload;
+        // Sans python3 dans le PATH, on tente le script directement (shebang).
+        if (python.isEmpty()) {
+            const QString script = arguments.takeFirst();
+            return script;
+        }
+        return python;
+    }
+    arguments = payload;
+    return runner.program;
+}
+
+// Signale un runner x86_64 sur un hôte aarch64 (nécessite alors box64/FEX).
+void GameManager::logArchitectureHint(const Runner &runner)
+{
+    if (runner.kind == Runner::Kind::None
+        || QSysInfo::currentCpuArchitecture() != QLatin1String("arm64"))
+        return;
+    QString probe = runner.program;
+    if (runner.kind == Runner::Kind::Proton) {
+        const QString bin = protonBinDir(runner.root);
+        probe = QFileInfo::exists(bin + QStringLiteral("/wine64"))
+                    ? bin + QStringLiteral("/wine64")
+                    : bin + QStringLiteral("/wine");
+    }
+    const int machine = elfMachine(probe);
+    if (machine == 62) // EM_X86_64
+        appendLog(QStringLiteral("Attention : ") + probe
+                  + QStringLiteral(" est un binaire x86_64 sur un hôte aarch64 — il faut "
+                                   "box64/FEX, ou une build GE-Proton aarch64."));
 }
 
 QString GameManager::defaultPrefixFor(const QString &gameName) const
@@ -170,7 +353,33 @@ void GameManager::appendLog(const QString &line)
     if (m_verboseTerminal) {
         std::fprintf(stderr, "%s\n", qPrintable(stamped));
         std::fflush(stderr);
+        writeLogFile(line);
     }
+}
+
+QString GameManager::logFilePath() const
+{
+    return QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
+           + QStringLiteral("/wine-mobile-launcher.log");
+}
+
+// Mode verbose : le journal est aussi ajouté, avec date complète, à
+// « wine-mobile-launcher.log » (dossier de données de l'appli). Rotation simple :
+// au-delà de 5 Mo, l'ancien fichier devient « .log.1 ».
+void GameManager::writeLogFile(const QString &line)
+{
+    const QString path = logFilePath();
+    QDir().mkpath(QFileInfo(path).absolutePath());
+    QFile file(path);
+    if (file.exists() && file.size() > 5 * 1024 * 1024) {
+        QFile::remove(path + QStringLiteral(".1"));
+        file.rename(path + QStringLiteral(".1"));
+    }
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text))
+        return;
+    const QString stamped = QDateTime::currentDateTime().toString(Qt::ISODate)
+                            + QStringLiteral("  ") + line + QStringLiteral("\n");
+    file.write(stamped.toUtf8());
 }
 
 void GameManager::clearLog()
@@ -247,13 +456,16 @@ void GameManager::launchGame(int row)
         return;
     }
 
-    const QString wine = resolveWine(game.wineBinary);
-    if (wine.isEmpty()) {
-        appendLog(QStringLiteral("Wine introuvable : installez le paquet wine ou définissez ")
-                  + QStringLiteral("un binaire personnalisé dans les paramètres."));
-        Q_EMIT gameLaunched(row, false, QStringLiteral("Wine introuvable sur le système."));
+    const Runner runner = resolveRunner(game.wineBinary);
+    if (runner.kind == Runner::Kind::None) {
+        appendLog(runner.error.isEmpty()
+                      ? QStringLiteral("Wine introuvable : installez le paquet wine ou définissez ")
+                            + QStringLiteral("un binaire Wine ou un dossier GE-Proton dans les paramètres.")
+                      : runner.error);
+        Q_EMIT gameLaunched(row, false, QStringLiteral("Wine / Proton introuvable."));
         return;
     }
+    logArchitectureHint(runner);
 
     const QFileInfo exeInfo(game.exePath);
     if (game.exePath.isEmpty() || !exeInfo.exists() || !exeInfo.isFile()) {
@@ -271,18 +483,14 @@ void GameManager::launchGame(int row)
     }
 
     auto *proc = new QProcess(this);
-    QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
-    env.insert(QStringLiteral("WINEPREFIX"), prefix);
-    // Mode verbose : laisser Wine afficher ses canaux err/fixme (diagnostic
-    // complet dans le journal et le terminal) ; sinon, sortie silencieuse.
-    if (!m_verboseTerminal)
-        env.insert(QStringLiteral("WINEDEBUG"), QStringLiteral("-all"));
-    proc->setProcessEnvironment(env);
+    proc->setProcessEnvironment(runnerEnvironment(runner, prefix));
 
-    QStringList arguments{game.exePath};
+    QStringList payload{game.exePath};
     const QStringList extra = game.args.split(QLatin1Char(' '), Qt::SkipEmptyParts);
     if (!extra.isEmpty())
-        arguments += extra;
+        payload += extra;
+    QStringList arguments;
+    const QString wine = runnerCommand(runner, payload, arguments);
 
     // MangoHud (option par jeu) : le HUD s'insère par LD_PRELOAD devant le
     // binaire Wine/umu-run, comme « mangohud wine jeu.exe ». Si le binaire
@@ -318,7 +526,7 @@ void GameManager::launchGame(int row)
     connect(proc, &QProcess::errorOccurred, this, [this, game](QProcess::ProcessError error) {
         if (error == QProcess::FailedToStart) {
             appendLog(QStringLiteral("Impossible de démarrer « ") + game.name
-                      + QStringLiteral(" » : binaire Wine invalide ?"));
+                      + QStringLiteral(" » : binaire Wine/Proton invalide ?"));
             m_processes.remove(game.id);
             m_model->setRunning(game.id, false);
         }
@@ -348,16 +556,8 @@ void GameManager::launchGame(int row)
 
 void GameManager::stopForGame(const WineGame &game)
 {
-    QString server = QStandardPaths::findExecutable(QStringLiteral("wineserver"));
-    if (server.isEmpty()) {
-        const QString wine = resolveWine(game.wineBinary);
-        if (!wine.isEmpty()) {
-            const QString candidate = QFileInfo(wine).absolutePath()
-                                      + QStringLiteral("/wineserver");
-            if (QFileInfo::exists(candidate))
-                server = candidate;
-        }
-    }
+    const Runner runner = resolveRunner(game.wineBinary);
+    const QString server = runnerWineserver(runner);
     if (server.isEmpty()) {
         appendLog(QStringLiteral("wineserver introuvable, impossible d'arrêter « ")
                   + game.name + QStringLiteral(" »."));
@@ -368,7 +568,21 @@ void GameManager::stopForGame(const WineGame &game)
                                                      : game.prefixPath;
     auto *proc = new QProcess(this);
     QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
-    env.insert(QStringLiteral("WINEPREFIX"), prefix);
+    env.insert(QStringLiteral("WINEPREFIX"), effectiveWinePrefix(runner, prefix));
+    if (runner.kind == Runner::Kind::Proton) {
+        // Le wineserver de Proton charge ses bibliothèques depuis son dossier.
+        QStringList libs;
+        for (const char *sub : {"/files/lib64", "/files/lib", "/dist/lib64", "/dist/lib"}) {
+            const QString dir = runner.root + QLatin1String(sub);
+            if (QFileInfo(dir).isDir())
+                libs << dir;
+        }
+        const QString old = env.value(QStringLiteral("LD_LIBRARY_PATH"));
+        if (!old.isEmpty())
+            libs << old;
+        if (!libs.isEmpty())
+            env.insert(QStringLiteral("LD_LIBRARY_PATH"), libs.join(QLatin1Char(':')));
+    }
     proc->setProcessEnvironment(env);
     proc->setProgram(server);
     proc->setArguments({QStringLiteral("-k")});
@@ -394,12 +608,15 @@ void GameManager::createPrefix(const QString &prefixPath)
         Q_EMIT prefixCreationFinished(path, false, QStringLiteral("Chemin du préfixe vide."));
         return;
     }
-    const QString wine = resolveWine({});
-    if (wine.isEmpty()) {
+    const Runner runner = resolveRunner({});
+    if (runner.kind == Runner::Kind::None) {
         Q_EMIT prefixCreationFinished(path, false,
-                                      QStringLiteral("Wine introuvable sur le système."));
+                                      runner.error.isEmpty()
+                                          ? QStringLiteral("Wine / Proton introuvable.")
+                                          : runner.error);
         return;
     }
+    logArchitectureHint(runner);
     if (!QDir().mkpath(path)) {
         Q_EMIT prefixCreationFinished(path, false,
                                       QStringLiteral("Impossible de créer le dossier : ") + path);
@@ -407,13 +624,11 @@ void GameManager::createPrefix(const QString &prefixPath)
     }
 
     auto *proc = new QProcess(this);
-    QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
-    env.insert(QStringLiteral("WINEPREFIX"), path);
-    if (!m_verboseTerminal)
-        env.insert(QStringLiteral("WINEDEBUG"), QStringLiteral("-all"));
-    proc->setProcessEnvironment(env);
-    proc->setProgram(wine);
-    proc->setArguments({QStringLiteral("wineboot"), QStringLiteral("-i")});
+    proc->setProcessEnvironment(runnerEnvironment(runner, path));
+    QStringList bootArgs;
+    proc->setProgram(runnerCommand(
+        runner, {QStringLiteral("wineboot"), QStringLiteral("-i")}, bootArgs));
+    proc->setArguments(bootArgs);
     connect(proc, &QProcess::finished, this,
             [this, path](int exitCode, QProcess::ExitStatus status) {
                 const bool ok = (status == QProcess::NormalExit && exitCode == 0);
@@ -439,7 +654,16 @@ void GameManager::createPrefix(const QString &prefixPath)
 
 QString GameManager::detectWine(const QString &overrideBinary) const
 {
-    return resolveWine(overrideBinary);
+    const Runner runner = resolveRunner(overrideBinary);
+    switch (runner.kind) {
+    case Runner::Kind::Wine:
+        return runner.program;
+    case Runner::Kind::Proton:
+        return runner.root + QStringLiteral(" (Proton)");
+    case Runner::Kind::None:
+        break;
+    }
+    return {};
 }
 
 QString GameManager::urlToPath(const QUrl &url) const
