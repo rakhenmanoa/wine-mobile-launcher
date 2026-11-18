@@ -18,6 +18,7 @@ struct WineGame {
     QString prefixPath;
     QString wineBinary;
     QString iconPath;
+    bool mangohud = false;
     qint64 lastPlayed = 0;
 };
 
@@ -35,6 +36,7 @@ public:
         PrefixPathRole,
         WineBinaryRole,
         IconPathRole,
+        MangohudRole,
         LastPlayedRole,
         RunningRole
     };

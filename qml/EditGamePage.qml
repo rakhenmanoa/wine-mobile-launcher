@@ -30,6 +30,7 @@ Kirigami.Page {
             prefixField.text = g.prefix
             wineField.text = g.wine
             iconField.text = g.icon
+            mangohudCheck.checked = g.mangohud
         } else {
             wineField.text = GameManager.defaultWineBinary
         }
@@ -45,10 +46,11 @@ Kirigami.Page {
         if (root.gameIndex >= 0) {
             GameManager.updateGame(root.gameIndex, nameField.text, exeField.text,
                                    argsField.text, prefixField.text, wineField.text,
-                                   iconField.text)
+                                   iconField.text, mangohudCheck.checked)
         } else {
             GameManager.addGame(nameField.text, exeField.text, argsField.text,
-                                prefixField.text, wineField.text, iconField.text)
+                                prefixField.text, wineField.text, iconField.text,
+                                mangohudCheck.checked)
         }
         applicationWindow().pageStack.layers.clear()
     }
@@ -152,6 +154,13 @@ Kirigami.Page {
                     icon.name: "document-open-folder-symbolic"
                     onClicked: wineDialog.open()
                 }
+            }
+
+            QQC2.CheckBox {
+                id: mangohudCheck
+
+                Layout.fillWidth: true
+                text: "Overlay MangoHud (FPS, CPU/GPU)"
             }
 
             RowLayout {

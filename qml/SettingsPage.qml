@@ -13,6 +13,7 @@ Kirigami.Page {
     Component.onCompleted: {
         wineField.text = GameManager.defaultWineBinary
         prefixField.text = GameManager.defaultPrefixDir
+        verboseCheck.checked = GameManager.verboseTerminal
     }
 
     function save() {
@@ -108,12 +109,27 @@ Kirigami.Page {
                     onClicked: GameManager.openPath(prefixField.text.trim())
                 }
             }
+
+            QQC2.CheckBox {
+                id: verboseCheck
+
+                Layout.fillWidth: true
+                text: "Journal des jeux dans le terminal (verbose)"
+                onToggled: GameManager.verboseTerminal = checked
+            }
         }
 
         QQC2.Label {
             Layout.fillWidth: true
             wrapMode: Text.WordWrap
             text: "Chaque jeu possède son propre préfixe : un « C: » virtuel isolé. Sans préfixe défini pour un jeu, un dossier est créé automatiquement ici, nommé d'après le jeu."
+            opacity: 0.8
+        }
+
+        QQC2.Label {
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
+            text: "« Journal dans le terminal » : quand l'application est lancée depuis un terminal, tout le journal (lancements, sortie Wine/Proton, erreurs) y est recopié en direct — pratique pour diagnostiquer umu-run/GE-Proton sans quitter l'appli. Ce mode laisse aussi Wine afficher ses messages d'erreur (au lieu de WINEDEBUG=-all)."
             opacity: 0.8
         }
     }

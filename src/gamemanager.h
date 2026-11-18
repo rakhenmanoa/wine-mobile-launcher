@@ -26,6 +26,8 @@ class GameManager : public QObject
                WRITE setDefaultWineBinary NOTIFY defaultWineBinaryChanged)
     Q_PROPERTY(QString defaultPrefixDir READ defaultPrefixDir
                WRITE setDefaultPrefixDir NOTIFY defaultPrefixDirChanged)
+    Q_PROPERTY(bool verboseTerminal READ verboseTerminal
+               WRITE setVerboseTerminal NOTIFY verboseTerminalChanged)
 
 public:
     explicit GameManager(QObject *parent = nullptr);
@@ -36,13 +38,17 @@ public:
     void setDefaultWineBinary(const QString &binary);
     QString defaultPrefixDir() const { return m_defaultPrefixDir; }
     void setDefaultPrefixDir(const QString &dir);
+    bool verboseTerminal() const { return m_verboseTerminal; }
+    void setVerboseTerminal(bool verbose);
 
     Q_INVOKABLE void addGame(const QString &name, const QString &exePath,
                              const QString &args, const QString &prefixPath,
-                             const QString &wineBinary, const QString &iconPath);
+                             const QString &wineBinary, const QString &iconPath,
+                             bool mangohud);
     Q_INVOKABLE void updateGame(int row, const QString &name, const QString &exePath,
                                 const QString &args, const QString &prefixPath,
-                                const QString &wineBinary, const QString &iconPath);
+                                const QString &wineBinary, const QString &iconPath,
+                                bool mangohud);
     Q_INVOKABLE void removeGame(int row);
 
     Q_INVOKABLE void launchGame(int row);
@@ -59,6 +65,7 @@ signals:
     void logChanged();
     void defaultWineBinaryChanged();
     void defaultPrefixDirChanged();
+    void verboseTerminalChanged();
     void prefixCreationFinished(const QString &path, bool success, const QString &message);
     void gameLaunched(int row, bool success, const QString &message);
 
@@ -77,4 +84,5 @@ private:
     QSettings m_settings;
     QString m_defaultWineBinary;
     QString m_defaultPrefixDir;
+    bool m_verboseTerminal = false;
 };

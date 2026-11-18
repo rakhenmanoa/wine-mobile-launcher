@@ -23,6 +23,7 @@ QVariant GameModel::data(const QModelIndex &index, int role) const
     case PrefixPathRole:  return g.prefixPath;
     case WineBinaryRole:  return g.wineBinary;
     case IconPathRole:    return g.iconPath;
+    case MangohudRole:    return g.mangohud;
     case LastPlayedRole:  return g.lastPlayed;
     case RunningRole:     return m_runningIds.contains(g.id);
     }
@@ -39,6 +40,7 @@ QHash<int, QByteArray> GameModel::roleNames() const
         {PrefixPathRole, "prefix"},
         {WineBinaryRole, "wine"},
         {IconPathRole,   "icon"},
+        {MangohudRole,   "mangohud"},
         {LastPlayedRole, "lastPlayed"},
         {RunningRole,    "running"}
     };
@@ -58,6 +60,7 @@ QVariantMap GameModel::get(int row) const
         {"prefix",     g.prefixPath},
         {"wine",       g.wineBinary},
         {"icon",       g.iconPath},
+        {"mangohud",   g.mangohud},
         {"lastPlayed", g.lastPlayed},
         {"running",    m_runningIds.contains(g.id)}
     };

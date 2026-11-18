@@ -1,5 +1,7 @@
 #include "gamemanager.h"
 
+#include <cstdio>
+
 #include <QDateTime>
 #include <QDesktopServices>
 #include <QDir>
@@ -26,6 +28,7 @@ GameManager::GameManager(QObject *parent)
         + QStringLiteral("/prefixes");
     m_defaultPrefixDir =
         m_settings.value(QStringLiteral("defaultPrefixDir"), defaultPrefix).toString();
+    m_verboseTerminal = m_settings.value(QStringLiteral("verboseTerminal")).toBool();
     loadLibrary();
     appendLog(QStringLiteral("Bibliothèque chargée : %1 jeu(x).")
                   .arg(m_model->rowCount()));
@@ -47,6 +50,15 @@ void GameManager::setDefaultPrefixDir(const QString &dir)
     m_defaultPrefixDir = dir;
     m_settings.setValue(QStringLiteral("defaultPrefixDir"), dir);
     Q_EMIT defaultPrefixDirChanged();
+}
+
+void GameManager::setVerboseTerminal(bool verbose)
+{
+    if (m_verboseTerminal == verbose)
+        return;
+    m_verboseTerminal = verbose;
+    m_settings.setValue(QStringLiteral("verboseTerminal"), verbose);
+    Q_EMIT verboseTerminalChanged();
 }
 
 QString GameManager::libraryFile() const
@@ -79,6 +91,7 @@ void GameManager::loadLibrary()
         game.prefixPath = obj.value(QLatin1String("prefix")).toString();
         game.wineBinary = obj.value(QLatin1String("wine")).toString();
         game.iconPath = obj.value(QLatin1String("icon")).toString();
+        game.mangohud = obj.value(QLatin1String("mangohud")).toBool();
         game.lastPlayed = static_cast<qint64>(obj.value(QLatin1String("lastPlayed")).toDouble());
         m_model->addGame(game);
     }
@@ -97,6 +110,7 @@ void GameManager::saveLibrary()
         obj.insert(QLatin1String("prefix"), game.prefixPath);
         obj.insert(QLatin1String("wine"), game.wineBinary);
         obj.insert(QLatin1String("icon"), game.iconPath);
+        obj.insert(QLatin1String("mangohud"), game.mangohud);
         obj.insert(QLatin1String("lastPlayed"), double(game.lastPlayed));
         games.append(obj);
     }
@@ -144,11 +158,19 @@ QString GameManager::defaultPrefixFor(const QString &gameName) const
 
 void GameManager::appendLog(const QString &line)
 {
-    m_log += QDateTime::currentDateTime().toString(QStringLiteral("HH:mm:ss"))
-             + QStringLiteral("  ") + line + QStringLiteral("\n");
+    const QString stamped = QDateTime::currentDateTime().toString(QStringLiteral("HH:mm:ss"))
+             + QStringLiteral("  ") + line;
+    m_log += stamped + QStringLiteral("\n");
     if (m_log.size() > 16000)
         m_log = m_log.right(12000);
     Q_EMIT logChanged();
+    // Mode verbose : miroir du journal vers stderr — visible en direct quand
+    // l'application est lancée depuis un terminal (sortie Wine/Proton, erreurs,
+    // cycle de vie des processus).
+    if (m_verboseTerminal) {
+        std::fprintf(stderr, "%s\n", qPrintable(stamped));
+        std::fflush(stderr);
+    }
 }
 
 void GameManager::clearLog()
@@ -159,7 +181,7 @@ void GameManager::clearLog()
 
 void GameManager::addGame(const QString &name, const QString &exePath, const QString &args,
                           const QString &prefixPath, const QString &wineBinary,
-                          const QString &iconPath)
+                          const QString &iconPath, bool mangohud)
 {
     WineGame game;
     game.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
@@ -169,6 +191,7 @@ void GameManager::addGame(const QString &name, const QString &exePath, const QSt
     game.prefixPath = prefixPath.trimmed();
     game.wineBinary = wineBinary.trimmed();
     game.iconPath = iconPath.trimmed();
+    game.mangohud = mangohud;
     m_model->addGame(game);
     saveLibrary();
     appendLog(QStringLiteral("Jeu ajouté : ") + game.name);
@@ -176,7 +199,8 @@ void GameManager::addGame(const QString &name, const QString &exePath, const QSt
 
 void GameManager::updateGame(int row, const QString &name, const QString &exePath,
                              const QString &args, const QString &prefixPath,
-                             const QString &wineBinary, const QString &iconPath)
+                             const QString &wineBinary, const QString &iconPath,
+                             bool mangohud)
 {
     if (row < 0 || row >= m_model->rowCount())
         return;
@@ -187,6 +211,7 @@ void GameManager::updateGame(int row, const QString &name, const QString &exePat
     game.prefixPath = prefixPath.trimmed();
     game.wineBinary = wineBinary.trimmed();
     game.iconPath = iconPath.trimmed();
+    game.mangohud = mangohud;
     m_model->updateGame(row, game);
     saveLibrary();
     appendLog(QStringLiteral("Jeu mis à jour : ") + game.name);
@@ -248,14 +273,35 @@ void GameManager::launchGame(int row)
     auto *proc = new QProcess(this);
     QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
     env.insert(QStringLiteral("WINEPREFIX"), prefix);
-    env.insert(QStringLiteral("WINEDEBUG"), QStringLiteral("-all"));
+    // Mode verbose : laisser Wine afficher ses canaux err/fixme (diagnostic
+    // complet dans le journal et le terminal) ; sinon, sortie silencieuse.
+    if (!m_verboseTerminal)
+        env.insert(QStringLiteral("WINEDEBUG"), QStringLiteral("-all"));
     proc->setProcessEnvironment(env);
-    proc->setProgram(wine);
 
     QStringList arguments{game.exePath};
     const QStringList extra = game.args.split(QLatin1Char(' '), Qt::SkipEmptyParts);
     if (!extra.isEmpty())
         arguments += extra;
+
+    // MangoHud (option par jeu) : le HUD s'insère par LD_PRELOAD devant le
+    // binaire Wine/umu-run, comme « mangohud wine jeu.exe ». Si le binaire
+    // est absent, on lance quand même le jeu, sans overlay.
+    QString hudBinary;
+    if (game.mangohud) {
+        hudBinary = QStandardPaths::findExecutable(QStringLiteral("mangohud"));
+        if (hudBinary.isEmpty())
+            appendLog(QStringLiteral("MangoHud introuvable (installez le paquet mangohud) : ")
+                      + QStringLiteral("lancement sans overlay."));
+    }
+    if (hudBinary.isEmpty()) {
+        proc->setProgram(wine);
+    } else {
+        appendLog(QStringLiteral("Overlay MangoHud activé pour « ") + game.name
+                  + QStringLiteral(" »."));
+        proc->setProgram(hudBinary);
+        arguments.prepend(wine);
+    }
     proc->setArguments(arguments);
     proc->setWorkingDirectory(exeInfo.absolutePath());
 
@@ -363,7 +409,8 @@ void GameManager::createPrefix(const QString &prefixPath)
     auto *proc = new QProcess(this);
     QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
     env.insert(QStringLiteral("WINEPREFIX"), path);
-    env.insert(QStringLiteral("WINEDEBUG"), QStringLiteral("-all"));
+    if (!m_verboseTerminal)
+        env.insert(QStringLiteral("WINEDEBUG"), QStringLiteral("-all"));
     proc->setProcessEnvironment(env);
     proc->setProgram(wine);
     proc->setArguments({QStringLiteral("wineboot"), QStringLiteral("-i")});
