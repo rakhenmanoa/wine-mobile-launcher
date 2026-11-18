@@ -3,6 +3,7 @@
 #include <QHash>
 #include <QObject>
 #include <QProcess>
+#include <QProcessEnvironment>
 #include <QSettings>
 #include <QString>
 #include <QUrl>
@@ -73,7 +74,23 @@ private:
     void loadLibrary();
     void saveLibrary();
     QString libraryFile() const;
-    QString resolveWine(const QString &overrideBinary) const;
+    // « Runner » : ce qui exécute réellement le jeu. Soit un binaire Wine
+    // classique (wine, Wine-GE, wine64…), soit un dossier Proton / GE-Proton
+    // (script « proton », y compris les builds aarch64), lancé via « proton run ».
+    struct Runner {
+        enum class Kind { None, Wine, Proton };
+        Kind kind = Kind::None;
+        QString program; // Wine : binaire wine ; Proton : script « proton »
+        QString root;    // Proton : racine du dossier GE-Proton
+        QString error;   // raison de l'échec quand kind == None
+    };
+    Runner resolveRunner(const QString &overrideBinary) const;
+    QString runnerWineserver(const Runner &runner) const;
+    QString effectiveWinePrefix(const Runner &runner, const QString &prefix) const;
+    QProcessEnvironment runnerEnvironment(const Runner &runner, const QString &prefix) const;
+    QString runnerCommand(const Runner &runner, const QStringList &payload,
+                          QStringList &arguments) const;
+    void logArchitectureHint(const Runner &runner);
     QString defaultPrefixFor(const QString &gameName) const;
     void stopForGame(const WineGame &game);
     void appendLog(const QString &line);

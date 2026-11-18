@@ -29,10 +29,10 @@ Kirigami.Page {
         wineMsg.visible = true
         if (resolved === "") {
             wineMsg.type = Kirigami.MessageType.Error
-            wineMsg.text = "Wine introuvable. Installez le paquet wine ou indiquez un binaire personnalisé (ex. : Wine-GE, Proton)."
+            wineMsg.text = "Wine introuvable. Installez le paquet wine ou indiquez un binaire Wine personnalisé, ou le dossier d'un GE-Proton (contenant le script « proton »)."
         } else {
             wineMsg.type = Kirigami.MessageType.Positive
-            wineMsg.text = "Wine détecté : " + resolved
+            wineMsg.text = "Runner détecté : " + resolved
         }
     }
 
@@ -77,11 +77,19 @@ Kirigami.Page {
                     id: wineField
 
                     Layout.fillWidth: true
-                    placeholderText: "wine (système)"
+                    placeholderText: "wine (système) ou dossier GE-Proton"
+                }
+                QQC2.ToolButton {
+                    icon.name: "document-open-symbolic"
+                    QQC2.ToolTip.text: "Choisir un binaire Wine"
+                    QQC2.ToolTip.visible: hovered
+                    onClicked: wineDialog.open()
                 }
                 QQC2.ToolButton {
                     icon.name: "document-open-folder-symbolic"
-                    onClicked: wineDialog.open()
+                    QQC2.ToolTip.text: "Choisir un dossier GE-Proton"
+                    QQC2.ToolTip.visible: hovered
+                    onClicked: protonDialog.open()
                 }
                 QQC2.ToolButton {
                     icon.name: "view-refresh-symbolic"
@@ -122,6 +130,13 @@ Kirigami.Page {
         QQC2.Label {
             Layout.fillWidth: true
             wrapMode: Text.WordWrap
+            text: "GE-Proton (y compris les builds aarch64) : choisissez le dossier extrait (celui qui contient le script « proton »). Le jeu est alors lancé via « proton run » ; le préfixe Wine se trouve dans le sous-dossier « pfx » du dossier de préfixe du jeu."
+            opacity: 0.8
+        }
+
+        QQC2.Label {
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
             text: "Chaque jeu possède son propre préfixe : un « C: » virtuel isolé. Sans préfixe défini pour un jeu, un dossier est créé automatiquement ici, nommé d'après le jeu."
             opacity: 0.8
         }
@@ -139,6 +154,11 @@ Kirigami.Page {
 
         nameFilters: ["Tous les fichiers (*)"]
         onAccepted: wineField.text = GameManager.urlToPath(selectedFile)
+    }
+    FolderDialog {
+        id: protonDialog
+
+        onAccepted: wineField.text = GameManager.urlToPath(selectedFolder)
     }
     FolderDialog {
         id: prefixDialog
