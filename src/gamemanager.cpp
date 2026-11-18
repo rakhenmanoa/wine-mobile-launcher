@@ -398,6 +398,18 @@ void GameManager::writeLogFile(const QString &line)
     file.write(stamped.toUtf8());
 }
 
+// Sortie d'un processus : une entrée horodatée par ligne (Wine/Proton envoient
+// souvent plusieurs lignes d'un coup).
+void GameManager::appendProcessOutput(const QString &gameName, const QString &text)
+{
+    const QStringList lines = text.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+    for (const QString &raw : lines) {
+        const QString line = raw.trimmed();
+        if (!line.isEmpty())
+            appendLog(QLatin1Char('[') + gameName + QStringLiteral("] ") + line);
+    }
+}
+
 void GameManager::clearLog()
 {
     m_log.clear();
@@ -532,14 +544,10 @@ void GameManager::launchGame(int row)
     proc->setWorkingDirectory(exeInfo.absolutePath());
 
     connect(proc, &QProcess::readyReadStandardOutput, this, [this, game, proc]() {
-        const QString out = QString::fromLocal8Bit(proc->readAllStandardOutput()).trimmed();
-        if (!out.isEmpty())
-            appendLog(QLatin1Char('[') + game.name + QStringLiteral("] ") + out);
+        appendProcessOutput(game.name, QString::fromLocal8Bit(proc->readAllStandardOutput()));
     });
     connect(proc, &QProcess::readyReadStandardError, this, [this, game, proc]() {
-        const QString err = QString::fromLocal8Bit(proc->readAllStandardError()).trimmed();
-        if (!err.isEmpty())
-            appendLog(QLatin1Char('[') + game.name + QStringLiteral("] ") + err);
+        appendProcessOutput(game.name, QString::fromLocal8Bit(proc->readAllStandardError()));
     });
     connect(proc, &QProcess::errorOccurred, this, [this, game](QProcess::ProcessError error) {
         if (error == QProcess::FailedToStart) {

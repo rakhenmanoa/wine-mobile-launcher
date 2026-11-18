@@ -104,6 +104,7 @@ private:
     void stopForGame(const WineGame &game);
     void appendLog(const QString &line);
     void writeLogFile(const QString &line);
+    void appendProcessOutput(const QString &gameName, const QString &text);
 
     GameModel *m_model = nullptr;
     QHash<QString, QProcess *> m_processes; // id de jeu -> processus wine
