@@ -8,7 +8,7 @@ int main(int argc, char *argv[])
     QGuiApplication app(argc, argv);
     QGuiApplication::setOrganizationName(QStringLiteral("org.rakhenmanoa"));
     QGuiApplication::setApplicationName(QStringLiteral("wine-mobile-launcher"));
-    QGuiApplication::setApplicationVersion(QStringLiteral("0.2.0"));
+    QGuiApplication::setApplicationVersion(QStringLiteral("0.2.1"));
 
     if (qEnvironmentVariableIsEmpty("QT_QUICK_CONTROLS_STYLE"))
         QQuickStyle::setStyle(QStringLiteral("org.kde.desktop"));
