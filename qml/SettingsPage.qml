@@ -144,7 +144,7 @@ Kirigami.Page {
         QQC2.Label {
             Layout.fillWidth: true
             wrapMode: Text.WordWrap
-            text: "« Journal dans le terminal » : quand l'application est lancée depuis un terminal, tout le journal (lancements, sortie Wine/Proton, erreurs) y est recopié en direct — pratique pour diagnostiquer umu-run/GE-Proton sans quitter l'appli. Ce mode laisse aussi Wine afficher ses messages d'erreur (au lieu de WINEDEBUG=-all)."
+            text: "« Journal dans le terminal » : quand l'application est lancée depuis un terminal, tout le journal (lancements, sortie Wine/Proton, erreurs) y est recopié en direct — pratique pour diagnostiquer umu-run/GE-Proton sans quitter l'appli. Ce mode laisse aussi Wine afficher ses messages d'erreur (au lieu de WINEDEBUG=-all). Le journal est en plus enregistré dans le fichier : " + GameManager.logFilePath()
             opacity: 0.8
         }
     }

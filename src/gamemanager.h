@@ -61,6 +61,8 @@ public:
     Q_INVOKABLE QString urlToPath(const QUrl &url) const;
     Q_INVOKABLE void openPath(const QString &path) const;
     Q_INVOKABLE void clearLog();
+    // Fichier où le journal est aussi enregistré quand le mode verbose est actif.
+    Q_INVOKABLE QString logFilePath() const;
 
 signals:
     void logChanged();
@@ -94,6 +96,7 @@ private:
     QString defaultPrefixFor(const QString &gameName) const;
     void stopForGame(const WineGame &game);
     void appendLog(const QString &line);
+    void writeLogFile(const QString &line);
 
     GameModel *m_model = nullptr;
     QHash<QString, QProcess *> m_processes; // id de jeu -> processus wine

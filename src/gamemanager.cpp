@@ -60,6 +60,8 @@ void GameManager::setVerboseTerminal(bool verbose)
     m_verboseTerminal = verbose;
     m_settings.setValue(QStringLiteral("verboseTerminal"), verbose);
     Q_EMIT verboseTerminalChanged();
+    if (verbose)
+        appendLog(QStringLiteral("Journal verbose activé — enregistrement dans ") + logFilePath());
 }
 
 QString GameManager::libraryFile() const
@@ -351,7 +353,33 @@ void GameManager::appendLog(const QString &line)
     if (m_verboseTerminal) {
         std::fprintf(stderr, "%s\n", qPrintable(stamped));
         std::fflush(stderr);
+        writeLogFile(line);
     }
+}
+
+QString GameManager::logFilePath() const
+{
+    return QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
+           + QStringLiteral("/wine-mobile-launcher.log");
+}
+
+// Mode verbose : le journal est aussi ajouté, avec date complète, à
+// « wine-mobile-launcher.log » (dossier de données de l'appli). Rotation simple :
+// au-delà de 5 Mo, l'ancien fichier devient « .log.1 ».
+void GameManager::writeLogFile(const QString &line)
+{
+    const QString path = logFilePath();
+    QDir().mkpath(QFileInfo(path).absolutePath());
+    QFile file(path);
+    if (file.exists() && file.size() > 5 * 1024 * 1024) {
+        QFile::remove(path + QStringLiteral(".1"));
+        file.rename(path + QStringLiteral(".1"));
+    }
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text))
+        return;
+    const QString stamped = QDateTime::currentDateTime().toString(Qt::ISODate)
+                            + QStringLiteral("  ") + line + QStringLiteral("\n");
+    file.write(stamped.toUtf8());
 }
 
 void GameManager::clearLog()

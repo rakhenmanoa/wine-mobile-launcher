@@ -11,6 +11,7 @@ Un lanceur d'applications Windows (Wine) léger, dans l'esprit de **Lutris**, co
 - **Lancement / arrêt** : lance le jeu avec `WINEPREFIX` correctement défini ; bouton Arrêter (envoie `wineserver -k` au préfixe du jeu)
 - **Runner configurable** : Wine système (`wine`), binaire personnalisé (Wine-GE…) ou **GE-Proton / Proton** (y compris les builds **aarch64**), avec détection automatique
 - **Journal intégré** : sortie stdout/stderr de Wine consultable depuis la page du jeu
+- **Journal verbose** : si l'option est cochée, le journal est aussi recopié dans le terminal et enregistré dans `~/.local/share/wine-mobile-launcher/wine-mobile-launcher.log` (rotation à 5 Mo)
 - **Persistance** : bibliothèque en JSON dans `~/.local/share/wine-mobile-launcher/` (chemin AppData standard)
 
 ## Dépendances
