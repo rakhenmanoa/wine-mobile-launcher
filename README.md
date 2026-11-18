@@ -63,7 +63,7 @@ sudo pacman -U wine-mobile-launcher-*.pkg.tar.zst
 
 ## GE-Proton (aarch64)
 
-Dans **Paramètres** (ou par jeu, dans la fiche d'édition), indiquez le **dossier GE-Proton extrait** (celui qui contient le script `proton` et `files/`) via le bouton dossier. Le launcher détecte alors Proton et :
+Dans **Paramètres → Dossier GE-Proton par défaut** (ou, par jeu, dans le champ **GE-Proton** de la fiche d'édition), indiquez le **dossier GE-Proton extrait** (celui qui contient le script `proton` et `files/`). Ordre de priorité : GE-Proton du jeu, Wine du jeu, GE-Proton par défaut, Wine par défaut, `wine` système. Le launcher détecte alors Proton et :
 
 - lance le jeu avec `python3 <dossier>/proton run jeu.exe` (`STEAM_COMPAT_DATA_PATH` = préfixe du jeu, `STEAM_COMPAT_CLIENT_INSTALL_PATH` défini, `PROTONFIXES_DISABLE=1`) ;
 - utilise le sous-dossier `pfx/` du préfixe du jeu comme `WINEPREFIX` réel ; « Créer le préfixe » passe aussi par `proton run wineboot` ;

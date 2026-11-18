@@ -24,6 +24,7 @@ GameManager::GameManager(QObject *parent)
 {
     m_model = new GameModel(this);
     m_defaultWineBinary = m_settings.value(QStringLiteral("defaultWineBinary")).toString();
+    m_defaultProtonDir = m_settings.value(QStringLiteral("defaultProtonDir")).toString();
     const QString defaultPrefix =
         QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
         + QStringLiteral("/prefixes");
@@ -42,6 +43,15 @@ void GameManager::setDefaultWineBinary(const QString &binary)
     m_defaultWineBinary = binary;
     m_settings.setValue(QStringLiteral("defaultWineBinary"), binary);
     Q_EMIT defaultWineBinaryChanged();
+}
+
+void GameManager::setDefaultProtonDir(const QString &dir)
+{
+    if (m_defaultProtonDir == dir)
+        return;
+    m_defaultProtonDir = dir;
+    m_settings.setValue(QStringLiteral("defaultProtonDir"), dir);
+    Q_EMIT defaultProtonDirChanged();
 }
 
 void GameManager::setDefaultPrefixDir(const QString &dir)
@@ -93,6 +103,7 @@ void GameManager::loadLibrary()
         game.args = obj.value(QLatin1String("args")).toString();
         game.prefixPath = obj.value(QLatin1String("prefix")).toString();
         game.wineBinary = obj.value(QLatin1String("wine")).toString();
+        game.protonDir = obj.value(QLatin1String("proton")).toString();
         game.iconPath = obj.value(QLatin1String("icon")).toString();
         game.mangohud = obj.value(QLatin1String("mangohud")).toBool();
         game.lastPlayed = static_cast<qint64>(obj.value(QLatin1String("lastPlayed")).toDouble());
@@ -112,6 +123,7 @@ void GameManager::saveLibrary()
         obj.insert(QLatin1String("args"), game.args);
         obj.insert(QLatin1String("prefix"), game.prefixPath);
         obj.insert(QLatin1String("wine"), game.wineBinary);
+        obj.insert(QLatin1String("proton"), game.protonDir);
         obj.insert(QLatin1String("icon"), game.iconPath);
         obj.insert(QLatin1String("mangohud"), game.mangohud);
         obj.insert(QLatin1String("lastPlayed"), double(game.lastPlayed));
@@ -173,10 +185,14 @@ int elfMachine(const QString &path)
 
 } // namespace
 
-GameManager::Runner GameManager::resolveRunner(const QString &overrideBinary) const
+// Ordre de priorité : GE-Proton du jeu, Wine du jeu, GE-Proton par défaut,
+// Wine par défaut, puis « wine » du système.
+GameManager::Runner GameManager::resolveRunner(const QString &overrideBinary,
+                                               const QString &overrideProton) const
 {
     QString firstError;
-    const QStringList candidates = {overrideBinary, m_defaultWineBinary, QStringLiteral("wine")};
+    const QStringList candidates = {overrideProton, overrideBinary, m_defaultProtonDir,
+                                    m_defaultWineBinary, QStringLiteral("wine")};
     for (QString candidate : candidates) {
         candidate = candidate.trimmed();
         if (candidate.isEmpty())
@@ -390,7 +406,7 @@ void GameManager::clearLog()
 
 void GameManager::addGame(const QString &name, const QString &exePath, const QString &args,
                           const QString &prefixPath, const QString &wineBinary,
-                          const QString &iconPath, bool mangohud)
+                          const QString &protonDir, const QString &iconPath, bool mangohud)
 {
     WineGame game;
     game.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
@@ -399,6 +415,7 @@ void GameManager::addGame(const QString &name, const QString &exePath, const QSt
     game.args = args.trimmed();
     game.prefixPath = prefixPath.trimmed();
     game.wineBinary = wineBinary.trimmed();
+    game.protonDir = protonDir.trimmed();
     game.iconPath = iconPath.trimmed();
     game.mangohud = mangohud;
     m_model->addGame(game);
@@ -408,8 +425,8 @@ void GameManager::addGame(const QString &name, const QString &exePath, const QSt
 
 void GameManager::updateGame(int row, const QString &name, const QString &exePath,
                              const QString &args, const QString &prefixPath,
-                             const QString &wineBinary, const QString &iconPath,
-                             bool mangohud)
+                             const QString &wineBinary, const QString &protonDir,
+                             const QString &iconPath, bool mangohud)
 {
     if (row < 0 || row >= m_model->rowCount())
         return;
@@ -419,6 +436,7 @@ void GameManager::updateGame(int row, const QString &name, const QString &exePat
     game.args = args.trimmed();
     game.prefixPath = prefixPath.trimmed();
     game.wineBinary = wineBinary.trimmed();
+    game.protonDir = protonDir.trimmed();
     game.iconPath = iconPath.trimmed();
     game.mangohud = mangohud;
     m_model->updateGame(row, game);
@@ -456,7 +474,7 @@ void GameManager::launchGame(int row)
         return;
     }
 
-    const Runner runner = resolveRunner(game.wineBinary);
+    const Runner runner = resolveRunner(game.wineBinary, game.protonDir);
     if (runner.kind == Runner::Kind::None) {
         appendLog(runner.error.isEmpty()
                       ? QStringLiteral("Wine introuvable : installez le paquet wine ou définissez ")
@@ -556,7 +574,7 @@ void GameManager::launchGame(int row)
 
 void GameManager::stopForGame(const WineGame &game)
 {
-    const Runner runner = resolveRunner(game.wineBinary);
+    const Runner runner = resolveRunner(game.wineBinary, game.protonDir);
     const QString server = runnerWineserver(runner);
     if (server.isEmpty()) {
         appendLog(QStringLiteral("wineserver introuvable, impossible d'arrêter « ")
@@ -652,9 +670,10 @@ void GameManager::createPrefix(const QString &prefixPath)
     proc->start();
 }
 
-QString GameManager::detectWine(const QString &overrideBinary) const
+QString GameManager::detectWine(const QString &overrideBinary,
+                                const QString &overrideProton) const
 {
-    const Runner runner = resolveRunner(overrideBinary);
+    const Runner runner = resolveRunner(overrideBinary, overrideProton);
     switch (runner.kind) {
     case Runner::Kind::Wine:
         return runner.program;

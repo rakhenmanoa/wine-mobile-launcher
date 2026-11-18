@@ -29,10 +29,9 @@ Kirigami.Page {
             argsField.text = g.args
             prefixField.text = g.prefix
             wineField.text = g.wine
+            protonField.text = g.proton
             iconField.text = g.icon
             mangohudCheck.checked = g.mangohud
-        } else {
-            wineField.text = GameManager.defaultWineBinary
         }
     }
 
@@ -46,11 +45,11 @@ Kirigami.Page {
         if (root.gameIndex >= 0) {
             GameManager.updateGame(root.gameIndex, nameField.text, exeField.text,
                                    argsField.text, prefixField.text, wineField.text,
-                                   iconField.text, mangohudCheck.checked)
+                                   protonField.text, iconField.text, mangohudCheck.checked)
         } else {
             GameManager.addGame(nameField.text, exeField.text, argsField.text,
-                                prefixField.text, wineField.text, iconField.text,
-                                mangohudCheck.checked)
+                                prefixField.text, wineField.text, protonField.text,
+                                iconField.text, mangohudCheck.checked)
         }
         applicationWindow().pageStack.layers.clear()
     }
@@ -148,18 +147,29 @@ Kirigami.Page {
                     id: wineField
 
                     Layout.fillWidth: true
-                    placeholderText: "wine (système) ou dossier GE-Proton"
-                }
-                QQC2.ToolButton {
-                    icon.name: "document-open-symbolic"
-                    QQC2.ToolTip.text: "Choisir un binaire Wine"
-                    QQC2.ToolTip.visible: hovered
-                    onClicked: wineDialog.open()
+                    placeholderText: GameManager.defaultWineBinary !== ""
+                                     ? GameManager.defaultWineBinary : "défaut (wine système)"
                 }
                 QQC2.ToolButton {
                     icon.name: "document-open-folder-symbolic"
-                    QQC2.ToolTip.text: "Choisir un dossier GE-Proton"
-                    QQC2.ToolTip.visible: hovered
+                    onClicked: wineDialog.open()
+                }
+            }
+
+            RowLayout {
+                Kirigami.FormData.label: "GE-Proton :"
+                Layout.fillWidth: true
+                spacing: Kirigami.Units.smallSpacing
+
+                QQC2.TextField {
+                    id: protonField
+
+                    Layout.fillWidth: true
+                    placeholderText: GameManager.defaultProtonDir !== ""
+                                     ? GameManager.defaultProtonDir : "aucun (dossier GE-Proton)"
+                }
+                QQC2.ToolButton {
+                    icon.name: "document-open-folder-symbolic"
                     onClicked: protonDialog.open()
                 }
             }
@@ -242,7 +252,7 @@ Kirigami.Page {
     FolderDialog {
         id: protonDialog
 
-        onAccepted: wineField.text = GameManager.urlToPath(selectedFolder)
+        onAccepted: protonField.text = GameManager.urlToPath(selectedFolder)
     }
     FileDialog {
         id: iconDialog
