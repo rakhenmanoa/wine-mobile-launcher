@@ -120,6 +120,12 @@ Kirigami.Page {
                 elide: Text.ElideMiddle
             }
             QQC2.Label {
+                Kirigami.FormData.label: "GE-Proton :"
+                Layout.fillWidth: true
+                text: root.game !== null && root.game.proton !== "" ? root.game.proton : "défaut"
+                elide: Text.ElideMiddle
+            }
+            QQC2.Label {
                 Kirigami.FormData.label: "Dernier lancement :"
                 Layout.fillWidth: true
                 text: root.game !== null && root.game.lastPlayed > 0
