@@ -195,7 +195,7 @@ Kirigami.Page {
                 Layout.fillWidth: true
                 wrapMode: Text.WordWrap
                 opacity: 0.8
-                text: "Plein écran paysage : bureau virtuel Wine (rendu via gamescope si installé) ; l'écran pivote au lancement via kscreen-doctor (Plasma) et revient à l'orientation normale à la fermeture du jeu. Si l'image apparaît tête en bas, essayez l'autre sens (left/right)."
+                text: "Plein écran paysage : un bureau virtuel Wine aux dimensions inversées de l'écran (90°) est créé, puis passé en plein écran directement par KWin via un script — sans kscreen-doctor ni gamescope, sans toucher à l'orientation du système."
             }
 
             RowLayout {

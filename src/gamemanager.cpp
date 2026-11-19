@@ -22,6 +22,7 @@
 #include <QStringList>
 #include <QSysInfo>
 #include <QTemporaryDir>
+#include <QTimer>
 #include <QUuid>
 
 GameManager::GameManager(QObject *parent)
@@ -225,20 +226,6 @@ int elfMachine(const QString &path)
         return -1;
     return static_cast<unsigned char>(head[18])
            | (static_cast<unsigned char>(head[19]) << 8);
-}
-
-// Exécute kscreen-doctor (contrôle d'affichage de Plasma) avec les arguments
-// donnés ; renvoie sa sortie combinée, ou vide si l'outil est absent.
-QString runKscreenDoctor(const QStringList &args)
-{
-    const QString tool = QStandardPaths::findExecutable(QStringLiteral("kscreen-doctor"));
-    if (tool.isEmpty())
-        return {};
-    QProcess proc;
-    proc.start(tool, args);
-    if (!proc.waitForStarted(3000) || !proc.waitForFinished(8000))
-        return {};
-    return QString::fromUtf8(proc.readAllStandardOutput() + proc.readAllStandardError());
 }
 
 } // namespace
@@ -737,16 +724,14 @@ void GameManager::launchGame(int row)
     if (!extra.isEmpty())
         payload += extra;
 
-    // Plein écran (paysage). gamescope ne sait pas pivoter son contenu en
-    // mode fenêtré (nested) : « --force-orientation » n'est lu que par son
-    // backend DRM (session SteamOS embarquée) et son backend Wayland renvoie
-    // une orientation figée à 0. Le décalage de 90° est donc appliqué à
-    // l'écran du système via kscreen-doctor (Plasma), remis à l'orientation
-    // normale à la fermeture ; gamescope, s'il est installé, apporte le
-    // rendu plein écran ; dans tous les cas, un bureau virtuel Wine aux
-    // dimensions de l'écran en paysage remplit le canvas.
-    bool fullscreenGamescope = false;
-    QString gamescopeBinary, rotatedOutput;
+    // Plein écran (paysage) : ni kscreen (rotation d'écran refusée par
+    // certaines installations Plasma Mobile) ni gamescope (son mode fenêtré
+    // ne pivote pas le contenu). On crée simplement un bureau virtuel Wine
+    // aux dimensions INVERSÉES de l'écran — 90° par rapport au principal —
+    // et la fenêtre est passée en plein écran par KWin lui-même (script
+    // one-shot via DBus, voir requestDesktopFullscreen) : Wine croit être
+    // sur un écran paysage, KWin voit une fenêtre plein écran, et
+    // l'orientation du système n'est jamais modifiée.
     QSize landscape(1280, 720);
     if (game.fullscreen) {
         const QScreen *screen = QGuiApplication::primaryScreen();
@@ -757,9 +742,8 @@ void GameManager::launchGame(int row)
         payload.prepend(QStringLiteral("/desktop=wml,%1x%2")
                             .arg(landscape.width()).arg(landscape.height()));
         payload.prepend(QStringLiteral("explorer"));
-        gamescopeBinary = QStandardPaths::findExecutable(QStringLiteral("gamescope"));
-        fullscreenGamescope = !gamescopeBinary.isEmpty();
-        rotatedOutput = rotateScreenLandscape();
+        appendLog(QStringLiteral("Plein écran (paysage) : bureau virtuel Wine %1×%2 (dimensions inversées de l'écran), plein écran demandé à KWin.")
+                      .arg(landscape.width()).arg(landscape.height()));
     }
 
     QStringList arguments;
@@ -783,24 +767,6 @@ void GameManager::launchGame(int row)
         proc->setProgram(hudBinary);
         arguments.prepend(wine);
     }
-    if (fullscreenGamescope) {
-        // gamescope : fenêtre imbriquée plein écran sur l'écran désormais
-        // pivoté (paysage), canvas du jeu identique à la sortie — pas de
-        // réencadrement. La rotation vient de kscreen-doctor (ci-dessus),
-        // pas de gamescope, qui ne sait pas pivoter en mode fenêtré.
-        QStringList gsArguments;
-        gsArguments << QStringLiteral("-W") << QString::number(landscape.width())
-                    << QStringLiteral("-H") << QString::number(landscape.height())
-                    << QStringLiteral("-w") << QString::number(landscape.width())
-                    << QStringLiteral("-h") << QString::number(landscape.height())
-                    << QStringLiteral("-f")
-                    << QStringLiteral("--") << proc->program();
-        gsArguments += arguments;
-        proc->setProgram(gamescopeBinary);
-        arguments = gsArguments;
-        appendLog(QStringLiteral("Plein écran (paysage) : rendu via gamescope %1×%2.")
-                      .arg(landscape.width()).arg(landscape.height()));
-    }
     proc->setArguments(arguments);
     proc->setWorkingDirectory(exeInfo.absolutePath());
 
@@ -811,20 +777,18 @@ void GameManager::launchGame(int row)
         appendProcessOutput(game.name, QString::fromLocal8Bit(proc->readAllStandardError()));
     });
     connect(proc, &QProcess::errorOccurred, this,
-            [this, game, rotatedOutput](QProcess::ProcessError error) {
+            [this, game](QProcess::ProcessError error) {
         if (error == QProcess::FailedToStart) {
             appendLog(QStringLiteral("Impossible de démarrer « ") + game.name
                       + QStringLiteral(" » : binaire Wine/Proton invalide ?"));
             m_processes.remove(game.id);
             m_model->setRunning(game.id, false);
-            restoreScreenPortrait(rotatedOutput);
         }
     });
     connect(proc, &QProcess::finished, this,
-            [this, game, rotatedOutput](int exitCode, QProcess::ExitStatus status) {
+            [this, game](int exitCode, QProcess::ExitStatus status) {
         m_processes.remove(game.id);
         m_model->setRunning(game.id, false);
-        restoreScreenPortrait(rotatedOutput);
         const QString detail = (status == QProcess::CrashExit)
             ? QStringLiteral("crash")
             : QStringLiteral("code %1").arg(exitCode);
@@ -842,41 +806,84 @@ void GameManager::launchGame(int row)
     appendLog(QStringLiteral("Lancement de « ") + game.name + QStringLiteral(" » (préfixe : ")
               + prefix + QStringLiteral(")…"));
     proc->start();
+    if (game.fullscreen) {
+        // La fenêtre du bureau virtuel (dimensions inversées de l'écran) est
+        // passée en plein écran par KWin, via un script one-shot : retenté
+        // une fois au cas où la fenêtre n'était pas encore mappée.
+        QTimer::singleShot(3500, this, [this]() { requestDesktopFullscreen(); });
+        QTimer::singleShot(8000, this, [this]() { requestDesktopFullscreen(); });
+    }
     Q_EMIT gameLaunched(row, true, {});
 }
 
-// Plein écran (paysage) : pivote l'écran via kscreen-doctor (Plasma) et
-// renvoie le nom de la sortie, ou vide si l'outil ou la sortie est absente.
-QString GameManager::rotateScreenLandscape()
+// Plein écran : passe la fenêtre du bureau virtuel Wine en plein écran via
+// un script KWin one-shot chargé par DBus (org.kde.KWin /Scripting). C'est
+// KWin qui décide de l'affichage ; kscreen-doctor n'est pas utilisé et
+// l'orientation du système n'est jamais modifiée.
+void GameManager::requestDesktopFullscreen()
 {
-    const QString text = runKscreenDoctor({QStringLiteral("-o")});
-    // Lignes du type « Output: 69 eDP-1 (enabled connected priority 1) ».
-    static const QRegularExpression outputRe(
-        QStringLiteral("Output:\\s*(?:\\d+\\s+)?(\\S+)\\s*\\("));
-    const QRegularExpressionMatch match = outputRe.match(text);
-    if (!match.hasMatch()) {
-        appendLog(QStringLiteral("Plein écran (paysage) : rotation de l'écran ")
-                  + QStringLiteral("indisponible (kscreen-doctor absent ou sortie ")
-                  + QStringLiteral("non détectée) — l'image restera en portrait."));
-        return {};
-    }
-    const QString output = match.captured(1);
-    runKscreenDoctor({QStringLiteral("output.") + output
-                      + QStringLiteral(".rotation.right")});
-    appendLog(QStringLiteral("Plein écran (paysage) : écran « %1 » pivoté (si l'image est tête en bas, inverser en « left »).")
-                  .arg(output));
-    return output;
-}
-
-// Remet l'écran en orientation normale après un jeu lancé en paysage.
-void GameManager::restoreScreenPortrait(const QString &output)
-{
-    if (output.isEmpty())
+    const QString dir = QStandardPaths::writableLocation(
+                            QStandardPaths::AppDataLocation);
+    if (!QDir().mkpath(dir))
         return;
-    runKscreenDoctor({QStringLiteral("output.") + output
-                      + QStringLiteral(".rotation.normal")});
-    appendLog(QStringLiteral("Écran « %1 » remis en orientation normale.")
-                  .arg(output));
+    QFile file(dir + QStringLiteral("/kwin-wml-fullscreen.js"));
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate))
+        return;
+    // Compatible Plasma 6 (windowList / fullscreen) et Plasma 5
+    // (clientList / fullScreen) ; cible la fenêtre du bureau virtuel Wine
+    // (« wml ») ou toute fenêtre Wine/explorer.
+    file.write(R"JS(
+const list = (workspace.windowList ? workspace.windowList()
+            : (workspace.clientList ? workspace.clientList() : []));
+for (let i = 0; i < list.length; i++) {
+    const w = list[i];
+    const c = String(w.resourceClass || "").toLowerCase();
+    const t = String(w.caption || "").toLowerCase();
+    if (c.indexOf("wine") >= 0 || c.indexOf("explorer") >= 0
+        || t.indexOf("wml") >= 0) {
+        if ("fullscreen" in w) w.fullscreen = true;
+        else if ("fullScreen" in w) w.fullScreen = true;
+    }
+}
+)JS");
+    file.close();
+
+    const QString dbusSend = QStandardPaths::findExecutable(QStringLiteral("dbus-send"));
+    if (dbusSend.isEmpty()) {
+        appendLog(QStringLiteral("Plein écran : dbus-send introuvable, la fenêtre ")
+                  + QStringLiteral("du bureau virtuel ne passera pas en plein ")
+                  + QStringLiteral("écran automatiquement."));
+        return;
+    }
+    QProcess call;
+    const auto callDbus = [&call, &dbusSend](const QStringList &args) {
+        call.start(dbusSend, args);
+        if (!call.waitForStarted(3000) || !call.waitForFinished(5000))
+            return QString();
+        return QString::fromUtf8(call.readAllStandardOutput());
+    };
+    // Un ancien script du même nom traînerait : on le décharge d'abord.
+    callDbus({QStringLiteral("--session"), QStringLiteral("--dest=org.kde.KWin"),
+              QStringLiteral("/Scripting"),
+              QStringLiteral("org.kde.kwin.Scripting.unloadScript"),
+              QStringLiteral("string:wmlfullscreen")});
+    const QString out = callDbus({QStringLiteral("--session"),
+        QStringLiteral("--print-reply"), QStringLiteral("--dest=org.kde.KWin"),
+        QStringLiteral("/Scripting"),
+        QStringLiteral("org.kde.kwin.Scripting.loadScript"),
+        QStringLiteral("string:") + file.fileName(),
+        QStringLiteral("string:wmlfullscreen")});
+    static const QRegularExpression idRe(QStringLiteral("int32\\s+(\\d+)"));
+    const QRegularExpressionMatch match = idRe.match(out);
+    if (!match.hasMatch()) {
+        appendLog(QStringLiteral("Plein écran : script KWin non chargé (KWin ")
+                  + QStringLiteral("n'a pas répondu ?)."));
+        return;
+    }
+    callDbus({QStringLiteral("--session"), QStringLiteral("--dest=org.kde.KWin"),
+              QStringLiteral("/Scripting/Script") + match.captured(1),
+              QStringLiteral("org.kde.kwin.Script.run")});
+    appendLog(QStringLiteral("Plein écran : demande de plein écran envoyée à KWin."));
 }
 
 void GameManager::stopForGame(const WineGame &game)

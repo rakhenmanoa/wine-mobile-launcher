@@ -15,6 +15,11 @@
     <binary>wine-mobile-launcher</binary>
   </provides>
   <releases>
+    <release version="0.2.4" date="2026-11-19">
+      <description>
+        <p>Plein écran paysage simplifié : bureau virtuel Wine aux dimensions inversées de l'écran (90°), passé en plein écran par KWin via un script one-shot — kscreen-doctor et gamescope ne sont plus utilisés, l'orientation du système n'est jamais modifiée.</p>
+      </description>
+    </release>
     <release version="0.2.3" date="2026-11-19">
       <description>
         <p>Plein écran paysage fiable : l'écran pivote au lancement via kscreen-doctor (Plasma) et revient à l'orientation normale à la fermeture ; gamescope, s'il est installé, assure le rendu plein écran — son mode fenêtré ne pouvant pas pivoter le contenu. Plus aucun build de test à chaque commit : les builds se déclenchent uniquement sur les tags de version.</p>
