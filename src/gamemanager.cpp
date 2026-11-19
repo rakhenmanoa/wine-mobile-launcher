@@ -34,6 +34,11 @@ GameManager::GameManager(QObject *parent)
     m_defaultPrefixDir =
         m_settings.value(QStringLiteral("defaultPrefixDir"), defaultPrefix).toString();
     m_verboseTerminal = m_settings.value(QStringLiteral("verboseTerminal")).toBool();
+    m_viewMode = m_settings.value(QStringLiteral("libraryViewMode"),
+                                  QStringLiteral("list")).toString();
+    if (m_viewMode != QLatin1String("list") && m_viewMode != QLatin1String("medium")
+        && m_viewMode != QLatin1String("large"))
+        m_viewMode = QStringLiteral("list");
     loadLibrary();
     appendLog(QStringLiteral("Bibliothèque chargée : %1 jeu(x).")
                   .arg(m_model->rowCount()));
@@ -75,6 +80,21 @@ void GameManager::setVerboseTerminal(bool verbose)
     Q_EMIT verboseTerminalChanged();
     if (verbose)
         appendLog(QStringLiteral("Journal verbose activé — enregistrement dans ") + logFilePath());
+}
+
+// Mode d'affichage de la bibliothèque (« list », « medium », « large »),
+// mémorisé dans les paramètres.
+void GameManager::setViewMode(const QString &mode)
+{
+    const QString normalized = mode.trimmed();
+    if (normalized != QLatin1String("list") && normalized != QLatin1String("medium")
+        && normalized != QLatin1String("large"))
+        return;
+    if (m_viewMode == normalized)
+        return;
+    m_viewMode = normalized;
+    m_settings.setValue(QStringLiteral("libraryViewMode"), normalized);
+    Q_EMIT viewModeChanged();
 }
 
 QString GameManager::libraryFile() const

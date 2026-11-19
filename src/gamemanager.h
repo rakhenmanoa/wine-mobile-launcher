@@ -31,6 +31,7 @@ class GameManager : public QObject
                WRITE setDefaultPrefixDir NOTIFY defaultPrefixDirChanged)
     Q_PROPERTY(bool verboseTerminal READ verboseTerminal
                WRITE setVerboseTerminal NOTIFY verboseTerminalChanged)
+    Q_PROPERTY(QString viewMode READ viewMode WRITE setViewMode NOTIFY viewModeChanged)
 
 public:
     explicit GameManager(QObject *parent = nullptr);
@@ -45,6 +46,8 @@ public:
     void setDefaultPrefixDir(const QString &dir);
     bool verboseTerminal() const { return m_verboseTerminal; }
     void setVerboseTerminal(bool verbose);
+    QString viewMode() const { return m_viewMode; }
+    void setViewMode(const QString &mode);
 
     Q_INVOKABLE void addGame(const QString &name, const QString &exePath,
                              const QString &args, const QString &prefixPath,
@@ -77,6 +80,7 @@ signals:
     void defaultProtonDirChanged();
     void defaultPrefixDirChanged();
     void verboseTerminalChanged();
+    void viewModeChanged();
     void prefixCreationFinished(const QString &path, bool success, const QString &message);
     void gameLaunched(int row, bool success, const QString &message);
 
@@ -124,4 +128,5 @@ private:
     QString m_defaultProtonDir;
     QString m_defaultPrefixDir;
     bool m_verboseTerminal = false;
+    QString m_viewMode;
 };
