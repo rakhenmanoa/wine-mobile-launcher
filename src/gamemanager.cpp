@@ -227,20 +227,6 @@ int elfMachine(const QString &path)
            | (static_cast<unsigned char>(head[19]) << 8);
 }
 
-// Exécute kscreen-doctor (contrôle d'affichage de Plasma) avec les arguments
-// donnés ; renvoie sa sortie combinée, ou vide si l'outil est absent.
-QString runKscreenDoctor(const QStringList &args)
-{
-    const QString tool = QStandardPaths::findExecutable(QStringLiteral("kscreen-doctor"));
-    if (tool.isEmpty())
-        return {};
-    QProcess proc;
-    proc.start(tool, args);
-    if (!proc.waitForStarted(3000) || !proc.waitForFinished(8000))
-        return {};
-    return QString::fromUtf8(proc.readAllStandardOutput() + proc.readAllStandardError());
-}
-
 } // namespace
 
 // Ordre de priorité : GE-Proton du jeu, Wine du jeu, GE-Proton par défaut,
@@ -737,23 +723,30 @@ void GameManager::launchGame(int row)
     if (!extra.isEmpty())
         payload += extra;
 
-    // Plein écran (paysage) : bureau virtuel Wine aux dimensions de l'écran
-    // pivoté ; l'écran lui-même est tourné via kscreen-doctor quand il est
-    // disponible, puis remis en orientation normale à la fermeture du jeu.
-    QString rotatedOutput;
+    // Plein écran (paysage). Wine n'a aucun contrôle sur l'orientation de
+    // l'écran du système : plutôt que de tourner l'écran, on pivote l'image
+    // du jeu elle-même. Si gamescope est installé, le jeu est encapsulé dans
+    // ce mini-composeur (voir plus bas) ; dans tous les cas, un bureau
+    // virtuel Wine aux dimensions de l'écran en paysage remplit le canvas.
+    bool fullscreenGamescope = false;
+    QSize portrait(720, 1280), landscape(1280, 720);
     if (game.fullscreen) {
         const QScreen *screen = QGuiApplication::primaryScreen();
         const QRect geom = screen ? screen->geometry() : QRect();
-        const QSize landscape = geom.isEmpty()
-            ? QSize(1280, 720)
-            : QSize(qMax(geom.width(), geom.height()),
-                    qMin(geom.width(), geom.height()));
+        if (!geom.isEmpty()) {
+            landscape = QSize(qMax(geom.width(), geom.height()),
+                              qMin(geom.width(), geom.height()));
+            portrait = QSize(landscape.height(), landscape.width());
+        }
+        fullscreenGamescope = !QStandardPaths::findExecutable(
+                                       QStringLiteral("gamescope")).isEmpty();
         payload.prepend(QStringLiteral("/desktop=wml,%1x%2")
                             .arg(landscape.width()).arg(landscape.height()));
         payload.prepend(QStringLiteral("explorer"));
-        appendLog(QStringLiteral("Plein écran (paysage) : bureau virtuel Wine %1×%2.")
-                      .arg(landscape.width()).arg(landscape.height()));
-        rotatedOutput = rotateScreenLandscape();
+        if (!fullscreenGamescope)
+            appendLog(QStringLiteral("Plein écran (paysage) : gamescope absent, ")
+                      + QStringLiteral("bureau virtuel Wine %1×%2 (image non pivotée).")
+                            .arg(landscape.width()).arg(landscape.height()));
     }
 
     QStringList arguments;
@@ -777,6 +770,29 @@ void GameManager::launchGame(int row)
         proc->setProgram(hudBinary);
         arguments.prepend(wine);
     }
+    if (fullscreenGamescope) {
+        // gamescope : fenêtre imbriquée plein écran aux dimensions de l'écran
+        // (portrait), affichage interne pivoté en paysage via
+        // « --force-orientation » (right : sens horaire ; si l'image apparaît
+        // tête en bas, inverser en « left »). Aucune action sur l'écran du
+        // système : la rotation ne concerne que le rendu du jeu.
+        QStringList gsArguments;
+        gsArguments << QStringLiteral("-W") << QString::number(portrait.width())
+                    << QStringLiteral("-H") << QString::number(portrait.height())
+                    << QStringLiteral("-w") << QString::number(landscape.width())
+                    << QStringLiteral("-h") << QString::number(landscape.height())
+                    << QStringLiteral("-f")
+                    << QStringLiteral("--force-orientation")
+                    << QStringLiteral("right")
+                    << QStringLiteral("--") << proc->program();
+        gsArguments += arguments;
+        proc->setProgram(QStandardPaths::findExecutable(QStringLiteral("gamescope")));
+        arguments = gsArguments;
+        appendLog(QStringLiteral("Plein écran (paysage) : encapsulé dans gamescope ")
+                  + QStringLiteral("(sortie %1×%2, affichage pivoté %3×%4).")
+                        .arg(portrait.width()).arg(portrait.height())
+                        .arg(landscape.width()).arg(landscape.height()));
+    }
     proc->setArguments(arguments);
     proc->setWorkingDirectory(exeInfo.absolutePath());
 
@@ -786,21 +802,18 @@ void GameManager::launchGame(int row)
     connect(proc, &QProcess::readyReadStandardError, this, [this, game, proc]() {
         appendProcessOutput(game.name, QString::fromLocal8Bit(proc->readAllStandardError()));
     });
-    connect(proc, &QProcess::errorOccurred, this,
-            [this, game, rotatedOutput](QProcess::ProcessError error) {
+    connect(proc, &QProcess::errorOccurred, this, [this, game](QProcess::ProcessError error) {
         if (error == QProcess::FailedToStart) {
             appendLog(QStringLiteral("Impossible de démarrer « ") + game.name
                       + QStringLiteral(" » : binaire Wine/Proton invalide ?"));
             m_processes.remove(game.id);
             m_model->setRunning(game.id, false);
-            restoreScreenPortrait(rotatedOutput);
         }
     });
     connect(proc, &QProcess::finished, this,
-            [this, game, rotatedOutput](int exitCode, QProcess::ExitStatus status) {
+            [this, game](int exitCode, QProcess::ExitStatus status) {
         m_processes.remove(game.id);
         m_model->setRunning(game.id, false);
-        restoreScreenPortrait(rotatedOutput);
         const QString detail = (status == QProcess::CrashExit)
             ? QStringLiteral("crash")
             : QStringLiteral("code %1").arg(exitCode);
@@ -819,40 +832,6 @@ void GameManager::launchGame(int row)
               + prefix + QStringLiteral(")…"));
     proc->start();
     Q_EMIT gameLaunched(row, true, {});
-}
-
-// Plein écran (paysage) : pivote l'écran via kscreen-doctor (Plasma) et
-// renvoie le nom de la sortie, ou vide si l'outil ou la sortie est absente.
-QString GameManager::rotateScreenLandscape()
-{
-    const QString text = runKscreenDoctor({QStringLiteral("-o")});
-    // Lignes du type « Output: 69 eDP-1 (enabled connected priority 1) ».
-    static const QRegularExpression outputRe(
-        QStringLiteral("Output:\\s*(?:\\d+\\s+)?(\\S+)\\s*\\("));
-    const QRegularExpressionMatch match = outputRe.match(text);
-    if (!match.hasMatch()) {
-        appendLog(QStringLiteral("Plein écran (paysage) : rotation de l'écran ")
-                  + QStringLiteral("indisponible (kscreen-doctor absent ou sortie ")
-                  + QStringLiteral("non détectée)."));
-        return {};
-    }
-    const QString output = match.captured(1);
-    runKscreenDoctor({QStringLiteral("output.") + output
-                      + QStringLiteral(".rotation.right")});
-    appendLog(QStringLiteral("Plein écran (paysage) : écran « %1 » pivoté.")
-                  .arg(output));
-    return output;
-}
-
-// Remet l'écran en orientation normale après un jeu lancé en paysage.
-void GameManager::restoreScreenPortrait(const QString &output)
-{
-    if (output.isEmpty())
-        return;
-    runKscreenDoctor({QStringLiteral("output.") + output
-                      + QStringLiteral(".rotation.normal")});
-    appendLog(QStringLiteral("Écran « %1 » remis en orientation normale.")
-                  .arg(output));
 }
 
 void GameManager::stopForGame(const WineGame &game)

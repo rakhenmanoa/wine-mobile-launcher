@@ -1,14 +1,13 @@
 name: Build
 
 # Ne compile QUE les versions publiées : un tag vX.Y.Z (major/minor/patch).
-# Les pushes sur main ne déclenchent plus rien. Chaque tag produit sa
-# GitHub Release, nouvelle à chaque fois, avec les paquets attachés.
-# workflow_dispatch permet un build de test manuel (sans release).
+# Les pushes sur main ne déclenchent plus rien — plus de build de test
+# manuel pour l'instant (workflow_dispatch retiré à la demande). Chaque tag
+# produit sa GitHub Release, nouvelle à chaque fois, avec les paquets attachés.
 on:
   push:
     tags:
       - 'v*.*.*'
-  workflow_dispatch:
 
 # contents: write : le job release crée la GitHub Release et y attache les paquets.
 permissions:

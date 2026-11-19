@@ -195,7 +195,7 @@ Kirigami.Page {
                 Layout.fillWidth: true
                 wrapMode: Text.WordWrap
                 opacity: 0.8
-                text: "Lance le jeu dans un bureau virtuel Wine aux dimensions de l'écran en paysage ; si kscreen-doctor est installé (Plasma), l'écran pivote au lancement et revient à l'orientation normale à la fermeture du jeu."
+                text: "Si gamescope est installé, le jeu est rendu dans ce mini-composeur : plein écran avec l'image pivotée en paysage, sans modifier l'orientation du système. Sinon, repli sur un bureau virtuel Wine aux dimensions de l'écran en paysage (image non pivotée)."
             }
 
             RowLayout {
