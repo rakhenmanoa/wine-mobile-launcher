@@ -15,6 +15,11 @@
     <binary>wine-mobile-launcher</binary>
   </provides>
   <releases>
+    <release version="0.2.5" date="2026-11-19">
+      <description>
+        <p>Plein écran paysage qui pivote vraiment : cage (compositor kiosque Wayland) tourne sa sortie de 90° et affiche Wine en plein cadre dans l'orientation du téléphone ; bureau virtuel Wine en pixels physiques (la géométrie logique de Qt donnait des dimensions erronées) ; le script KWin de plein écran cible désormais la fenêtre de cage et n'entre plus en collision au second essai.</p>
+      </description>
+    </release>
     <release version="0.2.4" date="2026-11-19">
       <description>
         <p>Plein écran paysage simplifié : bureau virtuel Wine aux dimensions inversées de l'écran (90°), passé en plein écran par KWin via un script one-shot — kscreen-doctor et gamescope ne sont plus utilisés, l'orientation du système n'est jamais modifiée.</p>

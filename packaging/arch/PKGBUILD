@@ -5,7 +5,7 @@
 # un paquet à la version du tag, et sa GitHub Release. En local (makepkg
 # direct), la version par défaut s'applique.
 pkgname=wine-mobile-launcher
-pkgver="${WML_PKGVER:-0.2.4}"
+pkgver="${WML_PKGVER:-0.2.5}"
 pkgrel=1
 pkgdesc="Lanceur d'applications Windows (Wine) pour Plasma Mobile, style Lutris (Qt6/Kirigami)"
 arch=('x86_64' 'aarch64')
@@ -15,7 +15,8 @@ depends=('qt6-base' 'qt6-declarative' 'kirigami' 'qqc2-desktop-style' 'breeze-ic
          'icoutils')
 optdepends=('wine: executer les applications Windows'
             'winetricks: composants de prefixes (integration UI a venir)'
-            'mangohud: overlay de performances (option MangoHud par jeu)')
+            'mangohud: overlay de performances (option MangoHud par jeu)'
+            'cage: plein ecran paysage avec rotation d image (option par jeu)')
 makedepends=('git' 'cmake' 'qt6-base' 'qt6-declarative')
 # En CI : commit exact (WML_COMMIT). En local : dernière révision de la branche
 # main (« #commit=HEAD » réutilisait un ancien checkout en cache dans src/).
