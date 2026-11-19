@@ -115,6 +115,7 @@ void GameManager::loadLibrary()
     }
     const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
     const QJsonArray games = doc.object().value(QLatin1String("games")).toArray();
+    bool migrated = false;
     for (const QJsonValue &value : games) {
         const QJsonObject obj = value.toObject();
         WineGame game;
@@ -130,8 +131,24 @@ void GameManager::loadLibrary()
         game.iconPath = obj.value(QLatin1String("icon")).toString();
         game.mangohud = obj.value(QLatin1String("mangohud")).toBool();
         game.lastPlayed = static_cast<qint64>(obj.value(QLatin1String("lastPlayed")).toDouble());
+        // Migration du cache v2 : les icônes automatiques extraites avant le
+        // passage à la grande variante sont re-extraites au démarrage (une
+        // seule fois, puis la bibliothèque est réenregistrée).
+        if (isAutoIconPath(game.iconPath)
+            && !game.iconPath.startsWith(iconCacheDir() + QLatin1Char('/'))) {
+            const QString oldPath = game.iconPath;
+            QString iconError;
+            const QString icon = extractExeIcon(game, &iconError);
+            if (!icon.isEmpty()) {
+                game.iconPath = icon;
+                QFile::remove(oldPath);
+                migrated = true;
+            }
+        }
         m_model->addGame(game);
     }
+    if (migrated)
+        saveLibrary();
 }
 
 void GameManager::saveLibrary()
@@ -439,22 +456,29 @@ void GameManager::clearLog()
     Q_EMIT logChanged();
 }
 
+// Dossier de cache des icônes extraites. « v2 » : depuis cette version, on
+// parcourt toutes les variantes du .ico et on garde la plus grande ; les
+// caches « v1 » (…/icons/<id>.png) pouvaient contenir une petite vignette.
 QString GameManager::iconCacheDir() const
 {
     return QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
-           + QStringLiteral("/icons");
+           + QStringLiteral("/icons/v2");
 }
 
+// Vrai si le chemin d'icône pointe dans le cache automatique (…/icons/,
+// v1 ou v2 — et non vers une image choisie manuellement par l'utilisateur).
 bool GameManager::isAutoIconPath(const QString &path) const
 {
-    return path.startsWith(iconCacheDir() + QLatin1Char('/'));
+    return path.startsWith(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
+                           + QStringLiteral("/icons/"));
 }
 
 // Extrait l'icône embarquée d'un exécutable Windows (.exe) avec wrestool
 // (paquet icoutils) : les ressources RT_GROUP_ICON sont des .ico, que le
-// greffon ICO de Qt sait décoder. La plus grosse ressource (icône la plus
-// détaillée) est convertie en PNG mis en cache par identifiant de jeu.
-QString GameManager::extractExeIcon(const WineGame &game, QString *error) const
+// greffon ICO de Qt sait décoder. Un même .ico contient souvent plusieurs
+// variantes (16, 32, 48… 256 px) : on les parcourt toutes et on garde la
+// plus grande — sinon le décodeur renvoie une petite vignette par défaut.
+QString GameManager::extractExeIcon(const WineGame &game, QString *error)
 {
     if (error)
         error->clear();
@@ -509,7 +533,24 @@ QString GameManager::extractExeIcon(const WineGame &game, QString *error) const
         return {};
     }
     QImageReader reader(best.absoluteFilePath());
-    QImage image = reader.read();
+    QImage image;
+    const int frames = reader.imageCount();
+    if (frames > 1) {
+        QImage largest;
+        for (int i = 0; i < frames; ++i) {
+            if (!reader.jumpToImage(i))
+                break;
+            const QImage frame = reader.read();
+            if (frame.isNull())
+                break;
+            if (frame.width() * frame.height()
+                > largest.width() * largest.height())
+                largest = frame;
+        }
+        image = largest;
+    } else {
+        image = reader.read();
+    }
     if (image.isNull()) {
         if (error)
             *error = QStringLiteral("icône illisible (") + reader.errorString()
@@ -531,6 +572,9 @@ QString GameManager::extractExeIcon(const WineGame &game, QString *error) const
             *error = QStringLiteral("écriture du cache impossible");
         return {};
     }
+    appendLog(QStringLiteral("Icône de « ") + game.name + QStringLiteral(" » : variante la plus grande ")
+              + QString::number(image.width()) + QStringLiteral("×")
+              + QString::number(image.height()) + QStringLiteral(" px."));
     return pngPath;
 }
 

@@ -6,7 +6,7 @@ Un lanceur d'applications Windows (Wine) léger, dans l'esprit de **Lutris**, co
 
 ## Fonctionnalités (v0.1)
 
-- **Bibliothèque de jeux** : liste de vos applications Windows (.exe, .msi, .bat, .lnk), avec icône extraite automatiquement de l'exécutable (via `icoutils`, cache PNG par jeu ; ré-extraction possible depuis la fiche du jeu) ou image choisie manuellement, exécutable et préfixe
+- **Bibliothèque de jeux** : liste de vos applications Windows (.exe, .msi, .bat, .lnk), avec icône extraite automatiquement de l'exécutable (via `icoutils`, la plus grande variante du .ico jusqu'à 256×256, cache PNG par jeu ; ré-extraction possible depuis la fiche du jeu) ou image choisie manuellement, exécutable et préfixe
 - **Affichage** : liste détaillée, grille d'icônes moyennes ou grandes icônes (préférence mémorisée) ; dans les grilles, appui sur une icône = lancement du jeu, appui long = fiche du jeu
 - **Préfixes Wine isolés** : un « C: » virtuel par jeu (comme Lutris) ; création en un clic via `wineboot -i`, ou préfixe automatique nommé d'après le jeu
 - **Lancement / arrêt** : lance le jeu avec `WINEPREFIX` correctement défini ; bouton Arrêter (envoie `wineserver -k` au préfixe du jeu)

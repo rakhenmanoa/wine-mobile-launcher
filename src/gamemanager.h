@@ -117,8 +117,9 @@ private:
     // vers une image choisie manuellement par l'utilisateur).
     bool isAutoIconPath(const QString &path) const;
     // Extrait l'icône embarquée d'un .exe (wrestool, paquet icoutils) vers un
-    // PNG en cache ; renvoie le chemin, ou vide avec la raison dans *error.
-    QString extractExeIcon(const WineGame &game, QString *error = nullptr) const;
+    // PNG en cache, en gardant la plus grande variante (256×256 quand elle
+    // existe) ; renvoie le chemin, ou vide avec la raison dans *error.
+    QString extractExeIcon(const WineGame &game, QString *error = nullptr);
 
     GameModel *m_model = nullptr;
     QHash<QString, QProcess *> m_processes; // id de jeu -> processus wine
