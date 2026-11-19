@@ -500,7 +500,7 @@ QString GameManager::extractExeIcon(const WineGame &game, QString *error) const
         QDir(tempDir.path()).entryInfoList({QStringLiteral("*.ico*")}, QDir::Files);
     QFileInfo best;
     for (const QFileInfo &entry : entries) {
-        if (!best.isValid() || entry.size() > best.size())
+        if (best.filePath().isEmpty() || entry.size() > best.size())
             best = entry;
     }
     if (!best.isFile()) {
