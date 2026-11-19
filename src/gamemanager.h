@@ -108,6 +108,11 @@ private:
     void logArchitectureHint(const Runner &runner);
     QString defaultPrefixFor(const QString &gameName) const;
     void stopForGame(const WineGame &game);
+    // Plein écran (paysage) : pivote l'écran via kscreen-doctor (Plasma) au
+    // lancement et renvoie le nom de la sortie ; vide si indisponible.
+    QString rotateScreenLandscape();
+    // Remet l'écran en orientation normale à la fermeture d'un jeu plein écran.
+    void restoreScreenPortrait(const QString &output);
     void appendLog(const QString &line);
     void writeLogFile(const QString &line);
     void appendProcessOutput(const QString &gameName, const QString &text);

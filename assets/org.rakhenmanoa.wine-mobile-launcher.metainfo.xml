@@ -15,6 +15,16 @@
     <binary>wine-mobile-launcher</binary>
   </provides>
   <releases>
+    <release version="0.2.3" date="2026-11-19">
+      <description>
+        <p>Plein écran paysage fiable : l'écran pivote au lancement via kscreen-doctor (Plasma) et revient à l'orientation normale à la fermeture ; gamescope, s'il est installé, assure le rendu plein écran — son mode fenêtré ne pouvant pas pivoter le contenu. Plus aucun build de test à chaque commit : les builds se déclenchent uniquement sur les tags de version.</p>
+      </description>
+    </release>
+    <release version="0.2.2" date="2026-11-19">
+      <description>
+        <p>Bouton modifier sur les tuiles de la bibliothèque, option « Démarrer en plein écran (paysage) » par jeu, gamescope en dépendance optionnelle.</p>
+      </description>
+    </release>
     <release version="0.2.1" date="2026-11-18">
       <description>
         <p>Entrée GE-Proton dédiée, dans les paramètres et par jeu.</p>
