@@ -20,6 +20,7 @@ struct WineGame {
     QString protonDir;
     QString iconPath;
     bool mangohud = false;
+    bool fullscreen = false;
     qint64 lastPlayed = 0;
 };
 
@@ -39,6 +40,7 @@ public:
         ProtonDirRole,
         IconPathRole,
         MangohudRole,
+        FullscreenRole,
         LastPlayedRole,
         RunningRole
     };

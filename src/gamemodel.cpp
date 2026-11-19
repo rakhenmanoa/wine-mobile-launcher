@@ -25,6 +25,7 @@ QVariant GameModel::data(const QModelIndex &index, int role) const
     case ProtonDirRole:   return g.protonDir;
     case IconPathRole:    return g.iconPath;
     case MangohudRole:    return g.mangohud;
+    case FullscreenRole:  return g.fullscreen;
     case LastPlayedRole:  return g.lastPlayed;
     case RunningRole:     return m_runningIds.contains(g.id);
     }
@@ -43,6 +44,7 @@ QHash<int, QByteArray> GameModel::roleNames() const
         {ProtonDirRole,  "proton"},
         {IconPathRole,   "icon"},
         {MangohudRole,   "mangohud"},
+        {FullscreenRole, "fullscreen"},
         {LastPlayedRole, "lastPlayed"},
         {RunningRole,    "running"}
     };
@@ -64,6 +66,7 @@ QVariantMap GameModel::get(int row) const
         {"proton",     g.protonDir},
         {"icon",       g.iconPath},
         {"mangohud",   g.mangohud},
+        {"fullscreen", g.fullscreen},
         {"lastPlayed", g.lastPlayed},
         {"running",    m_runningIds.contains(g.id)}
     };

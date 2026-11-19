@@ -167,7 +167,7 @@ Kirigami.Page {
 
         // Modes « icônes moyennes » et « grandes icônes » : grille de tuiles.
         // Appui sur une tuile : lancer le jeu. Appui long : fiche du jeu.
-        // Le bouton d'arrêt s'affiche sur les tuiles des jeux lancés.
+        // Coins de tuile : arrêt (jeu lancé) et modification du jeu.
         GridView {
             id: gridView
 
@@ -229,13 +229,20 @@ Kirigami.Page {
                     }
                 }
 
-                QQC2.ToolButton {
+                Row {
                     anchors.top: parent.top
                     anchors.right: parent.right
                     anchors.margins: Kirigami.Units.smallSpacing
-                    visible: model.running
-                    icon.name: "media-playback-stop"
-                    onClicked: GameManager.stopGame(model.index)
+
+                    QQC2.ToolButton {
+                        visible: model.running
+                        icon.name: "media-playback-stop"
+                        onClicked: GameManager.stopGame(model.index)
+                    }
+                    QQC2.ToolButton {
+                        icon.name: "document-edit-symbolic"
+                        onClicked: applicationWindow().pageStack.layers.push(editPageComponent, { gameIndex: model.index })
+                    }
                 }
 
                 TapHandler {

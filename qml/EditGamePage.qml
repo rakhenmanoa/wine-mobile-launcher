@@ -32,6 +32,7 @@ Kirigami.Page {
             protonField.text = g.proton
             iconField.text = g.icon
             mangohudCheck.checked = g.mangohud
+            fullscreenCheck.checked = g.fullscreen
         }
     }
 
@@ -45,11 +46,13 @@ Kirigami.Page {
         if (root.gameIndex >= 0) {
             GameManager.updateGame(root.gameIndex, nameField.text, exeField.text,
                                    argsField.text, prefixField.text, wineField.text,
-                                   protonField.text, iconField.text, mangohudCheck.checked)
+                                   protonField.text, iconField.text, mangohudCheck.checked,
+                                   fullscreenCheck.checked)
         } else {
             GameManager.addGame(nameField.text, exeField.text, argsField.text,
                                 prefixField.text, wineField.text, protonField.text,
-                                iconField.text, mangohudCheck.checked)
+                                iconField.text, mangohudCheck.checked,
+                                fullscreenCheck.checked)
         }
         applicationWindow().pageStack.layers.clear()
     }
@@ -179,6 +182,20 @@ Kirigami.Page {
 
                 Layout.fillWidth: true
                 text: "Overlay MangoHud (FPS, CPU/GPU)"
+            }
+
+            QQC2.CheckBox {
+                id: fullscreenCheck
+
+                Layout.fillWidth: true
+                text: "Démarrer en plein écran (paysage)"
+            }
+
+            QQC2.Label {
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                opacity: 0.8
+                text: "Lance le jeu dans un bureau virtuel Wine aux dimensions de l'écran en paysage ; si kscreen-doctor est installé (Plasma), l'écran pivote au lancement et revient à l'orientation normale à la fermeture du jeu."
             }
 
             RowLayout {

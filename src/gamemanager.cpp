@@ -7,6 +7,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QGuiApplication>
 #include <QImage>
 #include <QImageReader>
 #include <QJsonArray>
@@ -16,6 +17,7 @@
 #include <QProcessEnvironment>
 #include <QRegularExpression>
 #include <QSaveFile>
+#include <QScreen>
 #include <QStandardPaths>
 #include <QStringList>
 #include <QSysInfo>
@@ -130,6 +132,7 @@ void GameManager::loadLibrary()
         game.protonDir = obj.value(QLatin1String("proton")).toString();
         game.iconPath = obj.value(QLatin1String("icon")).toString();
         game.mangohud = obj.value(QLatin1String("mangohud")).toBool();
+        game.fullscreen = obj.value(QLatin1String("fullscreen")).toBool();
         game.lastPlayed = static_cast<qint64>(obj.value(QLatin1String("lastPlayed")).toDouble());
         // Migration du cache v2 : les icônes automatiques extraites avant le
         // passage à la grande variante sont re-extraites au démarrage (une
@@ -166,6 +169,7 @@ void GameManager::saveLibrary()
         obj.insert(QLatin1String("proton"), game.protonDir);
         obj.insert(QLatin1String("icon"), game.iconPath);
         obj.insert(QLatin1String("mangohud"), game.mangohud);
+        obj.insert(QLatin1String("fullscreen"), game.fullscreen);
         obj.insert(QLatin1String("lastPlayed"), double(game.lastPlayed));
         games.append(obj);
     }
@@ -221,6 +225,20 @@ int elfMachine(const QString &path)
         return -1;
     return static_cast<unsigned char>(head[18])
            | (static_cast<unsigned char>(head[19]) << 8);
+}
+
+// Exécute kscreen-doctor (contrôle d'affichage de Plasma) avec les arguments
+// donnés ; renvoie sa sortie combinée, ou vide si l'outil est absent.
+QString runKscreenDoctor(const QStringList &args)
+{
+    const QString tool = QStandardPaths::findExecutable(QStringLiteral("kscreen-doctor"));
+    if (tool.isEmpty())
+        return {};
+    QProcess proc;
+    proc.start(tool, args);
+    if (!proc.waitForStarted(3000) || !proc.waitForFinished(8000))
+        return {};
+    return QString::fromUtf8(proc.readAllStandardOutput() + proc.readAllStandardError());
 }
 
 } // namespace
@@ -580,7 +598,8 @@ QString GameManager::extractExeIcon(const WineGame &game, QString *error)
 
 void GameManager::addGame(const QString &name, const QString &exePath, const QString &args,
                           const QString &prefixPath, const QString &wineBinary,
-                          const QString &protonDir, const QString &iconPath, bool mangohud)
+                          const QString &protonDir, const QString &iconPath, bool mangohud,
+                          bool fullscreen)
 {
     WineGame game;
     game.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
@@ -592,6 +611,7 @@ void GameManager::addGame(const QString &name, const QString &exePath, const QSt
     game.protonDir = protonDir.trimmed();
     game.iconPath = iconPath.trimmed();
     game.mangohud = mangohud;
+    game.fullscreen = fullscreen;
     // Icône automatique : si l'utilisateur n'a pas choisi d'image, tenter
     // l'extraction depuis l'exécutable (sans effet hors .exe / hors icoutils).
     if (game.iconPath.isEmpty()) {
@@ -614,7 +634,7 @@ void GameManager::addGame(const QString &name, const QString &exePath, const QSt
 void GameManager::updateGame(int row, const QString &name, const QString &exePath,
                              const QString &args, const QString &prefixPath,
                              const QString &wineBinary, const QString &protonDir,
-                             const QString &iconPath, bool mangohud)
+                             const QString &iconPath, bool mangohud, bool fullscreen)
 {
     if (row < 0 || row >= m_model->rowCount())
         return;
@@ -628,6 +648,7 @@ void GameManager::updateGame(int row, const QString &name, const QString &exePat
     game.protonDir = protonDir.trimmed();
     game.iconPath = iconPath.trimmed();
     game.mangohud = mangohud;
+    game.fullscreen = fullscreen;
     // Icône automatique : extraction si aucune icône n'est définie, ou
     // re-extraction quand l'exécutable a changé et que l'icône actuelle est
     // celle du cache automatique — une image choisie manuellement reste.
@@ -715,6 +736,26 @@ void GameManager::launchGame(int row)
     const QStringList extra = game.args.split(QLatin1Char(' '), Qt::SkipEmptyParts);
     if (!extra.isEmpty())
         payload += extra;
+
+    // Plein écran (paysage) : bureau virtuel Wine aux dimensions de l'écran
+    // pivoté ; l'écran lui-même est tourné via kscreen-doctor quand il est
+    // disponible, puis remis en orientation normale à la fermeture du jeu.
+    QString rotatedOutput;
+    if (game.fullscreen) {
+        const QScreen *screen = QGuiApplication::primaryScreen();
+        const QRect geom = screen ? screen->geometry() : QRect();
+        const QSize landscape = geom.isEmpty()
+            ? QSize(1280, 720)
+            : QSize(qMax(geom.width(), geom.height()),
+                    qMin(geom.width(), geom.height()));
+        payload.prepend(QStringLiteral("/desktop=wml,%1x%2")
+                            .arg(landscape.width()).arg(landscape.height()));
+        payload.prepend(QStringLiteral("explorer"));
+        appendLog(QStringLiteral("Plein écran (paysage) : bureau virtuel Wine %1×%2.")
+                      .arg(landscape.width()).arg(landscape.height()));
+        rotatedOutput = rotateScreenLandscape();
+    }
+
     QStringList arguments;
     const QString wine = runnerCommand(runner, payload, arguments);
 
@@ -745,17 +786,21 @@ void GameManager::launchGame(int row)
     connect(proc, &QProcess::readyReadStandardError, this, [this, game, proc]() {
         appendProcessOutput(game.name, QString::fromLocal8Bit(proc->readAllStandardError()));
     });
-    connect(proc, &QProcess::errorOccurred, this, [this, game](QProcess::ProcessError error) {
+    connect(proc, &QProcess::errorOccurred, this,
+            [this, game, rotatedOutput](QProcess::ProcessError error) {
         if (error == QProcess::FailedToStart) {
             appendLog(QStringLiteral("Impossible de démarrer « ") + game.name
                       + QStringLiteral(" » : binaire Wine/Proton invalide ?"));
             m_processes.remove(game.id);
             m_model->setRunning(game.id, false);
+            restoreScreenPortrait(rotatedOutput);
         }
     });
-    connect(proc, &QProcess::finished, this, [this, game](int exitCode, QProcess::ExitStatus status) {
+    connect(proc, &QProcess::finished, this,
+            [this, game, rotatedOutput](int exitCode, QProcess::ExitStatus status) {
         m_processes.remove(game.id);
         m_model->setRunning(game.id, false);
+        restoreScreenPortrait(rotatedOutput);
         const QString detail = (status == QProcess::CrashExit)
             ? QStringLiteral("crash")
             : QStringLiteral("code %1").arg(exitCode);
@@ -774,6 +819,40 @@ void GameManager::launchGame(int row)
               + prefix + QStringLiteral(")…"));
     proc->start();
     Q_EMIT gameLaunched(row, true, {});
+}
+
+// Plein écran (paysage) : pivote l'écran via kscreen-doctor (Plasma) et
+// renvoie le nom de la sortie, ou vide si l'outil ou la sortie est absente.
+QString GameManager::rotateScreenLandscape()
+{
+    const QString text = runKscreenDoctor({QStringLiteral("-o")});
+    // Lignes du type « Output: 69 eDP-1 (enabled connected priority 1) ».
+    static const QRegularExpression outputRe(
+        QStringLiteral("Output:\\s*(?:\\d+\\s+)?(\\S+)\\s*\\("));
+    const QRegularExpressionMatch match = outputRe.match(text);
+    if (!match.hasMatch()) {
+        appendLog(QStringLiteral("Plein écran (paysage) : rotation de l'écran ")
+                  + QStringLiteral("indisponible (kscreen-doctor absent ou sortie ")
+                  + QStringLiteral("non détectée)."));
+        return {};
+    }
+    const QString output = match.captured(1);
+    runKscreenDoctor({QStringLiteral("output.") + output
+                      + QStringLiteral(".rotation.right")});
+    appendLog(QStringLiteral("Plein écran (paysage) : écran « %1 » pivoté.")
+                  .arg(output));
+    return output;
+}
+
+// Remet l'écran en orientation normale après un jeu lancé en paysage.
+void GameManager::restoreScreenPortrait(const QString &output)
+{
+    if (output.isEmpty())
+        return;
+    runKscreenDoctor({QStringLiteral("output.") + output
+                      + QStringLiteral(".rotation.normal")});
+    appendLog(QStringLiteral("Écran « %1 » remis en orientation normale.")
+                  .arg(output));
 }
 
 void GameManager::stopForGame(const WineGame &game)
