@@ -48,6 +48,11 @@ Kirigami.Page {
             onTriggered: applicationWindow().pageStack.layers.push(editPageComponent, { gameIndex: root.gameIndex })
         },
         Kirigami.Action {
+            text: "Extraire l'icône"
+            icon.name: "view-refresh-symbolic"
+            onTriggered: GameManager.refreshIcon(root.gameIndex)
+        },
+        Kirigami.Action {
             text: "Supprimer"
             icon.name: "edit-delete-symbolic"
             onTriggered: confirmDialog.open()
@@ -89,6 +94,14 @@ Kirigami.Page {
             Layout.fillWidth: true
             showCloseButton: true
             visible: false
+        }
+
+        Kirigami.Icon {
+            Layout.alignment: Qt.AlignHCenter
+            Layout.preferredWidth: Kirigami.Units.iconSizes.large
+            Layout.preferredHeight: Kirigami.Units.iconSizes.large
+            source: root.game !== null && root.game.icon !== ""
+                    ? root.game.icon : "applications-games"
         }
 
         Kirigami.FormLayout {

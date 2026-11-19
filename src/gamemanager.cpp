@@ -7,6 +7,8 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QImage>
+#include <QImageReader>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -17,6 +19,7 @@
 #include <QStandardPaths>
 #include <QStringList>
 #include <QSysInfo>
+#include <QTemporaryDir>
 #include <QUuid>
 
 GameManager::GameManager(QObject *parent)
@@ -416,6 +419,101 @@ void GameManager::clearLog()
     Q_EMIT logChanged();
 }
 
+QString GameManager::iconCacheDir() const
+{
+    return QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
+           + QStringLiteral("/icons");
+}
+
+bool GameManager::isAutoIconPath(const QString &path) const
+{
+    return path.startsWith(iconCacheDir() + QLatin1Char('/'));
+}
+
+// Extrait l'icône embarquée d'un exécutable Windows (.exe) avec wrestool
+// (paquet icoutils) : les ressources RT_GROUP_ICON sont des .ico, que le
+// greffon ICO de Qt sait décoder. La plus grosse ressource (icône la plus
+// détaillée) est convertie en PNG mis en cache par identifiant de jeu.
+QString GameManager::extractExeIcon(const WineGame &game, QString *error) const
+{
+    if (error)
+        error->clear();
+    const QString exe = game.exePath;
+    // wrestool ne traite que les fichiers PE ; les raccourcis .lnk, scripts
+    // .bat et installateurs .msi sont ignorés silencieusement.
+    if (exe.isEmpty() || !exe.endsWith(QLatin1String(".exe"), Qt::CaseInsensitive))
+        return {};
+    const QFileInfo exeInfo(exe);
+    if (!exeInfo.isFile()) {
+        if (error)
+            *error = QStringLiteral("exécutable introuvable");
+        return {};
+    }
+    const QString wrestool = QStandardPaths::findExecutable(QStringLiteral("wrestool"));
+    if (wrestool.isEmpty()) {
+        if (error)
+            *error = QStringLiteral("wrestool introuvable (paquet icoutils)");
+        return {};
+    }
+
+    QTemporaryDir tempDir;
+    if (!tempDir.isValid()) {
+        if (error)
+            *error = QStringLiteral("dossier temporaire indisponible");
+        return {};
+    }
+    QProcess proc;
+    proc.setProgram(wrestool);
+    proc.setArguments({QStringLiteral("-x"), QStringLiteral("--type=14"),
+                       QStringLiteral("--output"), tempDir.path(),
+                       exeInfo.absoluteFilePath()});
+    proc.start();
+    if (!proc.waitForStarted(3000) || !proc.waitForFinished(10000)) {
+        proc.kill();
+        proc.waitForFinished(1000);
+        if (error)
+            *error = QStringLiteral("wrestool n'a pas pu analyser l'exécutable");
+        return {};
+    }
+
+    const QFileInfoList entries =
+        QDir(tempDir.path()).entryInfoList({QStringLiteral("*.ico*")}, QDir::Files);
+    QFileInfo best;
+    for (const QFileInfo &entry : entries) {
+        if (!best.isValid() || entry.size() > best.size())
+            best = entry;
+    }
+    if (!best.isFile()) {
+        if (error)
+            *error = QStringLiteral("aucune ressource d'icône dans l'exécutable");
+        return {};
+    }
+    QImageReader reader(best.absoluteFilePath());
+    QImage image = reader.read();
+    if (image.isNull()) {
+        if (error)
+            *error = QStringLiteral("icône illisible (") + reader.errorString()
+                     + QStringLiteral(")");
+        return {};
+    }
+    if (image.width() > 256 || image.height() > 256)
+        image = image.scaled(256, 256, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+
+    const QString cache = iconCacheDir();
+    if (!QDir().mkpath(cache)) {
+        if (error)
+            *error = QStringLiteral("cache d'icônes inaccessible");
+        return {};
+    }
+    const QString pngPath = cache + QLatin1Char('/') + game.id + QStringLiteral(".png");
+    if (!image.save(pngPath, "PNG")) {
+        if (error)
+            *error = QStringLiteral("écriture du cache impossible");
+        return {};
+    }
+    return pngPath;
+}
+
 void GameManager::addGame(const QString &name, const QString &exePath, const QString &args,
                           const QString &prefixPath, const QString &wineBinary,
                           const QString &protonDir, const QString &iconPath, bool mangohud)
@@ -430,6 +528,20 @@ void GameManager::addGame(const QString &name, const QString &exePath, const QSt
     game.protonDir = protonDir.trimmed();
     game.iconPath = iconPath.trimmed();
     game.mangohud = mangohud;
+    // Icône automatique : si l'utilisateur n'a pas choisi d'image, tenter
+    // l'extraction depuis l'exécutable (sans effet hors .exe / hors icoutils).
+    if (game.iconPath.isEmpty()) {
+        QString iconError;
+        const QString icon = extractExeIcon(game, &iconError);
+        if (!icon.isEmpty()) {
+            game.iconPath = icon;
+            appendLog(QStringLiteral("Icône extraite de l'exécutable pour « ")
+                      + game.name + QStringLiteral(" »."));
+        } else if (!iconError.isEmpty()) {
+            appendLog(QStringLiteral("Pas d'icône pour « ") + game.name
+                      + QStringLiteral(" » (") + iconError + QStringLiteral(")."));
+        }
+    }
     m_model->addGame(game);
     saveLibrary();
     appendLog(QStringLiteral("Jeu ajouté : ") + game.name);
@@ -443,6 +555,7 @@ void GameManager::updateGame(int row, const QString &name, const QString &exePat
     if (row < 0 || row >= m_model->rowCount())
         return;
     WineGame game = m_model->gameAt(row);
+    const QString previousExe = game.exePath;
     game.name = name.trimmed();
     game.exePath = exePath.trimmed();
     game.args = args.trimmed();
@@ -451,6 +564,22 @@ void GameManager::updateGame(int row, const QString &name, const QString &exePat
     game.protonDir = protonDir.trimmed();
     game.iconPath = iconPath.trimmed();
     game.mangohud = mangohud;
+    // Icône automatique : extraction si aucune icône n'est définie, ou
+    // re-extraction quand l'exécutable a changé et que l'icône actuelle est
+    // celle du cache automatique — une image choisie manuellement reste.
+    if (game.iconPath.isEmpty()
+        || (previousExe != game.exePath && isAutoIconPath(game.iconPath))) {
+        QString iconError;
+        const QString icon = extractExeIcon(game, &iconError);
+        if (!icon.isEmpty()) {
+            game.iconPath = icon;
+            appendLog(QStringLiteral("Icône extraite de l'exécutable pour « ")
+                      + game.name + QStringLiteral(" »."));
+        } else if (game.iconPath.isEmpty() && !iconError.isEmpty()) {
+            appendLog(QStringLiteral("Pas d'icône pour « ") + game.name
+                      + QStringLiteral(" » (") + iconError + QStringLiteral(")."));
+        }
+    }
     m_model->updateGame(row, game);
     saveLibrary();
     appendLog(QStringLiteral("Jeu mis à jour : ") + game.name);
@@ -468,6 +597,9 @@ void GameManager::removeGame(int row)
     }
     m_model->setRunning(game.id, false);
     stopForGame(game);
+    // L'icône mise en cache automatiquement ne doit pas survivre au jeu.
+    if (isAutoIconPath(game.iconPath))
+        QFile::remove(game.iconPath);
     m_model->removeGame(row);
     saveLibrary();
     appendLog(QStringLiteral("Jeu supprimé de la bibliothèque : ") + game.name);
@@ -625,6 +757,30 @@ void GameManager::stopGame(int row)
     if (row < 0 || row >= m_model->rowCount())
         return;
     stopForGame(m_model->gameAt(row));
+}
+
+// Action explicite de l'interface : re-extraction forcée de l'icône depuis
+// l'exécutable (remplace une image choisie manuellement ou un cache périmé).
+void GameManager::refreshIcon(int row)
+{
+    if (row < 0 || row >= m_model->rowCount())
+        return;
+    WineGame game = m_model->gameAt(row);
+    QString iconError;
+    const QString icon = extractExeIcon(game, &iconError);
+    if (!icon.isEmpty()) {
+        game.iconPath = icon;
+        m_model->updateGame(row, game);
+        saveLibrary();
+        appendLog(QStringLiteral("Icône mise à jour depuis l'exécutable pour « ")
+                  + game.name + QStringLiteral(" »."));
+    } else {
+        appendLog(QStringLiteral("Aucune icône extraite pour « ") + game.name
+                  + QStringLiteral(" »")
+                  + (iconError.isEmpty() ? QStringLiteral(".")
+                                         : QStringLiteral(" (") + iconError
+                                               + QStringLiteral(").")));
+    }
 }
 
 void GameManager::createPrefix(const QString &prefixPath)

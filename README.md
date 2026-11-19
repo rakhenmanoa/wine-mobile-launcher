@@ -6,7 +6,7 @@ Un lanceur d'applications Windows (Wine) léger, dans l'esprit de **Lutris**, co
 
 ## Fonctionnalités (v0.1)
 
-- **Bibliothèque de jeux** : liste de vos applications Windows (.exe, .msi, .bat, .lnk), avec icône, exécutable et préfixe
+- **Bibliothèque de jeux** : liste de vos applications Windows (.exe, .msi, .bat, .lnk), avec icône extraite automatiquement de l'exécutable (via `icoutils`, cache PNG par jeu ; ré-extraction possible depuis la fiche du jeu) ou image choisie manuellement, exécutable et préfixe
 - **Préfixes Wine isolés** : un « C: » virtuel par jeu (comme Lutris) ; création en un clic via `wineboot -i`, ou préfixe automatique nommé d'après le jeu
 - **Lancement / arrêt** : lance le jeu avec `WINEPREFIX` correctement défini ; bouton Arrêter (envoie `wineserver -k` au préfixe du jeu)
 - **Runner configurable** : Wine système (`wine`), binaire personnalisé (Wine-GE…) ou **GE-Proton / Proton** (y compris les builds **aarch64**), avec détection automatique
@@ -16,7 +16,7 @@ Un lanceur d'applications Windows (Wine) léger, dans l'esprit de **Lutris**, co
 
 ## Dépendances
 
-**Runtime** : `wine` (paquet de votre distribution), Qt 6.5+, Kirigami (modules QML KDE).
+**Runtime** : `wine` (paquet de votre distribution), Qt 6.5+, Kirigami (modules QML KDE), `icoutils` (extraction des icônes des exécutables).
 
 **Compilation** (Debian / Ubuntu / KDE Neon) :
 

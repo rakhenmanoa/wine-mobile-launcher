@@ -55,6 +55,8 @@ public:
                                 const QString &wineBinary, const QString &protonDir,
                                 const QString &iconPath, bool mangohud);
     Q_INVOKABLE void removeGame(int row);
+    // Re-extrait l'icône de l'exécutable d'un jeu (remplace l'icône actuelle).
+    Q_INVOKABLE void refreshIcon(int row);
 
     Q_INVOKABLE void launchGame(int row);
     Q_INVOKABLE void stopGame(int row);
@@ -105,6 +107,14 @@ private:
     void appendLog(const QString &line);
     void writeLogFile(const QString &line);
     void appendProcessOutput(const QString &gameName, const QString &text);
+    // Dossier de cache des icônes extraites des exécutables.
+    QString iconCacheDir() const;
+    // Vrai si le chemin d'icône pointe dans le cache automatique (et non
+    // vers une image choisie manuellement par l'utilisateur).
+    bool isAutoIconPath(const QString &path) const;
+    // Extrait l'icône embarquée d'un .exe (wrestool, paquet icoutils) vers un
+    // PNG en cache ; renvoie le chemin, ou vide avec la raison dans *error.
+    QString extractExeIcon(const WineGame &game, QString *error = nullptr) const;
 
     GameModel *m_model = nullptr;
     QHash<QString, QProcess *> m_processes; // id de jeu -> processus wine
