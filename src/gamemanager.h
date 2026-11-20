@@ -109,8 +109,11 @@ private:
     QString defaultPrefixFor(const QString &gameName) const;
     void stopForGame(const WineGame &game);
     // Plein écran : installe des règles de fenêtre KWin (kwinrulesrc) qui
-    // forcent le plein écran de cage / du bureau virtuel Wine.
+    // forcent le plein écran du bureau virtuel Wine.
     void ensureFullscreenWindowRules();
+    // Rotation de l'écran (kscreen-doctor) pendant un jeu plein écran paysage.
+    bool rotateScreenForGame(const QString &gameId);
+    void restoreScreenRotation(const QString &gameId);
     void appendLog(const QString &line);
     void writeLogFile(const QString &line);
     void appendProcessOutput(const QString &gameName, const QString &text);
@@ -133,4 +136,8 @@ private:
     QString m_defaultPrefixDir;
     bool m_verboseTerminal = false;
     QString m_viewMode;
+    // Écran pivoté pour un jeu plein écran paysage (à restaurer à sa fin).
+    QString m_rotatedGameId;
+    QString m_rotatedOutput;
+    QString m_rotatedOriginal;
 };

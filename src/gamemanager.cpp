@@ -21,6 +21,7 @@
 #include <QScreen>
 #include <QStandardPaths>
 #include <QStringList>
+#include <QThread>
 #include <QSysInfo>
 #include <QTemporaryDir>
 #include <QTimer>
@@ -725,38 +726,26 @@ void GameManager::launchGame(int row)
     if (!extra.isEmpty())
         payload += extra;
 
-    // Plein écran (paysage). Ni kscreen (absent de plusieurs installations
-    // Plasma Mobile) ni gamescope (son mode fenêtré ne pivote pas le
-    // contenu) : la rotation est faite par cage, un compositor kiosque
-    // Wayland (wlroots) dont la sortie est tournée de 90° (-r). Wine, via
-    // l'XWayland de cage, croit être sur un écran paysage ; cage affiche le
-    // rendu pivoté dans une fenêtre aux dimensions du téléphone —
-    // l'orientation du système n'est jamais modifiée. Sans cage, on garde
-    // le bureau virtuel inversé plein écran (KWin réadaptera la fenêtre).
-    QSize landscape(1280, 720);
-    QString cageBinary;
+    // Plein écran (paysage) : l'écran est pivoté par kscreen-doctor le temps
+    // du jeu (rotateScreenForGame, restauré à la fin), et Wine tourne dans un
+    // bureau virtuel aux dimensions paysage de l'écran, passé en plein écran
+    // par une règle de fenêtre KWin. cage n'est plus utilisé : son option
+    // « -r » a disparu des versions récentes.
     if (game.fullscreen) {
         const QScreen *screen = QGuiApplication::primaryScreen();
-        // Pixels PHYSIQUES : Qt rapporte la géométrie logique (le journal
-        // montrait 904×407 au lieu de 2400×1080) ; Wine doit voir la vraie
-        // résolution de l'écran, inversée (90°).
+        // Pixels PHYSIQUES : Qt rapporte la géométrie logique ; Wine doit
+        // voir la vraie résolution de l'écran, en paysage.
         const qreal dpr = screen ? screen->devicePixelRatio() : 1.0;
         const QRect geom = screen ? screen->geometry() : QRect();
+        QSize landscape(1280, 720);
         if (!geom.isEmpty())
             landscape = QSize(qRound(qMax(geom.width(), geom.height()) * dpr),
                               qRound(qMin(geom.width(), geom.height()) * dpr));
         payload.prepend(QStringLiteral("/desktop=wml,%1x%2")
                             .arg(landscape.width()).arg(landscape.height()));
         payload.prepend(QStringLiteral("explorer"));
-        cageBinary = QStandardPaths::findExecutable(QStringLiteral("cage"));
-        if (!cageBinary.isEmpty() && QStandardPaths::findExecutable(QStringLiteral("Xwayland")).isEmpty())
-            appendLog(QStringLiteral("Plein écran (paysage) : Xwayland introuvable (installez xorg-xwayland) — cage ne pourra pas héberger Wine."));
-        if (!cageBinary.isEmpty())
-            appendLog(QStringLiteral("Plein écran (paysage) : rendu pivoté de 90° via cage, bureau virtuel Wine %1×%2 (pixels physiques, dimensions inversées).")
-                          .arg(landscape.width()).arg(landscape.height()));
-        else
-            appendLog(QStringLiteral("Plein écran (paysage) : cage introuvable (installez le paquet « cage ») — bureau virtuel Wine %1×%2 plein écran, mais sans rotation d'image.")
-                          .arg(landscape.width()).arg(landscape.height()));
+        appendLog(QStringLiteral("Plein écran (paysage) : bureau virtuel Wine %1×%2.")
+                      .arg(landscape.width()).arg(landscape.height()));
     }
 
     QStringList arguments;
@@ -780,17 +769,6 @@ void GameManager::launchGame(int row)
         proc->setProgram(hudBinary);
         arguments.prepend(wine);
     }
-    if (!cageBinary.isEmpty()) {
-        // cage enveloppe Wine (ou mangohud→wine) : kiosque Wayland plein
-        // cadre sur une sortie tournée de 90° (-r) ; cage quitte quand son
-        // client sort — transparent pour l'app (logs, arrêt, statut).
-        QStringList cageArguments;
-        cageArguments << QStringLiteral("-r") << QStringLiteral("--")
-                      << proc->program();
-        cageArguments += arguments;
-        proc->setProgram(cageBinary);
-        arguments = cageArguments;
-    }
     proc->setArguments(arguments);
     proc->setWorkingDirectory(exeInfo.absolutePath());
 
@@ -807,12 +785,14 @@ void GameManager::launchGame(int row)
                       + QStringLiteral(" » : binaire Wine/Proton invalide ?"));
             m_processes.remove(game.id);
             m_model->setRunning(game.id, false);
+            restoreScreenRotation(game.id);
         }
     });
     connect(proc, &QProcess::finished, this,
             [this, game](int exitCode, QProcess::ExitStatus status) {
         m_processes.remove(game.id);
         m_model->setRunning(game.id, false);
+        restoreScreenRotation(game.id);
         const QString detail = (status == QProcess::CrashExit)
             ? QStringLiteral("crash")
             : QStringLiteral("code %1").arg(exitCode);
@@ -829,18 +809,105 @@ void GameManager::launchGame(int row)
     saveLibrary();
     appendLog(QStringLiteral("Lancement de « ") + game.name + QStringLiteral(" » (préfixe : ")
               + prefix + QStringLiteral(")…"));
-    // Plein écran : une règle de fenêtre KWin (permanente) force le plein
-    // écran des fenêtres de cage / du bureau virtuel Wine. Elle doit exister
-    // avant la création de la fenêtre.
-    if (game.fullscreen)
+    // Plein écran : règle de fenêtre KWin (permanente, elle doit exister
+    // avant la création de la fenêtre) + rotation de l'écran en paysage.
+    if (game.fullscreen) {
         ensureFullscreenWindowRules();
+        rotateScreenForGame(game.id);
+    }
     proc->start();
     Q_EMIT gameLaunched(row, true, {});
 }
 
+// Rotation de l'écran pour un jeu en plein écran paysage : kscreen-doctor
+// (paquet libkscreen) tourne la première sortie active de 90° (sens réglable
+// par la variable d'environnement WML_ROTATION = right | left | inverted,
+// « right » par défaut) ; l'orientation d'origine est restaurée à la fin du
+// jeu. Rien n'est fait si l'écran est déjà en paysage.
+bool GameManager::rotateScreenForGame(const QString &gameId)
+{
+    const QScreen *screen = QGuiApplication::primaryScreen();
+    if (screen && screen->geometry().width() > screen->geometry().height()) {
+        appendLog(QStringLiteral("Plein écran (paysage) : l'écran est déjà en paysage."));
+        return true;
+    }
+    const QString kscreen = QStandardPaths::findExecutable(QStringLiteral("kscreen-doctor"));
+    if (kscreen.isEmpty()) {
+        appendLog(QStringLiteral("Plein écran (paysage) : kscreen-doctor introuvable (paquet libkscreen) — ")
+                  + QStringLiteral("l'écran ne sera pas pivoté."));
+        return false;
+    }
+    const auto run = [](const QString &program, const QStringList &args, int *exitCode) {
+        QProcess p;
+        p.start(program, args);
+        if (!p.waitForStarted(3000) || !p.waitForFinished(8000)) {
+            if (exitCode) *exitCode = -1;
+            return QString();
+        }
+        if (exitCode) *exitCode = p.exitCode();
+        return QString::fromUtf8(p.readAllStandardOutput());
+    };
+
+    // Première sortie active et son orientation courante (1 normal, 2 gauche,
+    // 4 inversé, 8 droite — valeurs de KScreen::Output::Rotation).
+    const QJsonDocument doc = QJsonDocument::fromJson(
+        run(kscreen, {QStringLiteral("-j")}, nullptr).toUtf8());
+    QString output;
+    int rotation = 1;
+    for (const QJsonValue &v : doc.object().value(QLatin1String("outputs")).toArray()) {
+        const QJsonObject o = v.toObject();
+        if (o.value(QLatin1String("enabled")).toBool()) {
+            output = o.value(QLatin1String("name")).toString();
+            rotation = o.value(QLatin1String("rotation")).toInt(1);
+            break;
+        }
+    }
+    if (output.isEmpty()) {
+        appendLog(QStringLiteral("Plein écran (paysage) : sortie d'écran introuvable via kscreen-doctor -j."));
+        return false;
+    }
+
+    QString direction = qEnvironmentVariable("WML_ROTATION", QStringLiteral("right"));
+    if (direction != QLatin1String("left") && direction != QLatin1String("inverted"))
+        direction = QStringLiteral("right");
+    int code = 0;
+    run(kscreen, {QStringLiteral("output.%1.rotation.%2").arg(output, direction)}, &code);
+    if (code != 0) {
+        appendLog(QStringLiteral("Plein écran (paysage) : kscreen-doctor a échoué (code %1).").arg(code));
+        return false;
+    }
+    m_rotatedGameId = gameId;
+    m_rotatedOutput = output;
+    switch (rotation) {
+    case 2:  m_rotatedOriginal = QStringLiteral("left"); break;
+    case 4:  m_rotatedOriginal = QStringLiteral("inverted"); break;
+    case 8:  m_rotatedOriginal = QStringLiteral("right"); break;
+    default: m_rotatedOriginal = QStringLiteral("none"); break;
+    }
+    appendLog(QStringLiteral("Plein écran (paysage) : écran %1 pivoté (%2), restauré à la fin du jeu.")
+                  .arg(output, direction));
+    // Laisse KWin/Plasma appliquer la nouvelle géométrie avant Wine.
+    QThread::msleep(1500);
+    return true;
+}
+
+void GameManager::restoreScreenRotation(const QString &gameId)
+{
+    if (m_rotatedOutput.isEmpty() || m_rotatedGameId != gameId)
+        return;
+    const QString kscreen = QStandardPaths::findExecutable(QStringLiteral("kscreen-doctor"));
+    if (!kscreen.isEmpty()) {
+        QProcess::execute(kscreen, {QStringLiteral("output.%1.rotation.%2")
+                                        .arg(m_rotatedOutput, m_rotatedOriginal)});
+        appendLog(QStringLiteral("Plein écran (paysage) : orientation de l'écran restaurée."));
+    }
+    m_rotatedGameId.clear();
+    m_rotatedOutput.clear();
+    m_rotatedOriginal.clear();
+}
+
 // Plein écran : installe (idempotent) des règles de fenêtre KWin qui forcent
-// le plein écran de la fenêtre imbriquée de cage (app-id « wlroots ») et du
-// bureau virtuel Wine (titre « wml »). KWin applique lui-même la règle dès que
+// le plein écran du bureau virtuel Wine (titre « wml »). KWin applique lui-même la règle dès que
 // la fenêtre apparaît : ni script, ni minuteur, ni pid. L'orientation du
 // système n'est jamais modifiée.
 void GameManager::ensureFullscreenWindowRules()
@@ -870,11 +937,7 @@ void GameManager::ensureFullscreenWindowRules()
 
     struct Rule { QString id, description, key, value; };
     const QList<Rule> rules = {
-        // Fenêtre imbriquée de cage : classe « wlroots » (sous-chaîne).
-        {QStringLiteral("wml-fullscreen-cage"),
-         QStringLiteral("Wine Mobile Launcher : plein écran (cage)"),
-         QStringLiteral("wmclass"), QStringLiteral("wlroots")},
-        // Bureau virtuel Wine sans cage : titre « wml - Wine desktop ».
+        // Bureau virtuel Wine : titre « wml - Wine desktop ».
         {QStringLiteral("wml-fullscreen-desktop"),
          QStringLiteral("Wine Mobile Launcher : plein écran (bureau virtuel Wine)"),
          QStringLiteral("title"), QStringLiteral("wml")},
@@ -913,7 +976,7 @@ void GameManager::ensureFullscreenWindowRules()
     }
     run(dbusSend, {QStringLiteral("--session"), QStringLiteral("--dest=org.kde.KWin"),
                    QStringLiteral("/KWin"), QStringLiteral("org.kde.KWin.reconfigure")});
-    appendLog(QStringLiteral("Plein écran : règle de fenêtre KWin installée (cage / bureau virtuel Wine)."));
+    appendLog(QStringLiteral("Plein écran : règle de fenêtre KWin installée (bureau virtuel Wine)."));
 }
 
 void GameManager::stopForGame(const WineGame &game)

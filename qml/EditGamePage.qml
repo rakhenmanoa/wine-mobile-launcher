@@ -195,7 +195,7 @@ Kirigami.Page {
                 Layout.fillWidth: true
                 wrapMode: Text.WordWrap
                 opacity: 0.8
-                text: "Plein écran paysage : si « cage » est installé (pacman -S cage), Wine tourne dans ce compositor kiosque dont la sortie est tournée de 90° — image pivotée plein cadre, sans toucher à l'orientation du système. Sinon, bureau virtuel Wine inversé en plein écran (sans rotation d'image)."
+                text: "Plein écran paysage : pendant le jeu, l'écran est pivoté en paysage (kscreen-doctor, paquet libkscreen) puis restauré à la fin ; Wine tourne dans un bureau virtuel plein écran."
             }
 
             RowLayout {
