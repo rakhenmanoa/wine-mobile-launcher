@@ -195,7 +195,7 @@ Kirigami.Page {
                 Layout.fillWidth: true
                 wrapMode: Text.WordWrap
                 opacity: 0.8
-                text: "Plein écran : le jeu tourne dans un bureau virtuel Wine à la taille de l'écran, passé en vrai plein écran par une règle de fenêtre KWin (sans barre de navigation). L'orientation n'est pas modifiée : mettez le téléphone en paysage avant de lancer."
+                text: "Plein écran paysage : le jeu tourne dans un sway imbriqué (pacman -S sway) dont la sortie est pivotée de 90° — seul le jeu est pivoté, pas l'écran du système. Sans sway : bureau virtuel Wine en plein écran, sans rotation d'image."
             }
 
             RowLayout {

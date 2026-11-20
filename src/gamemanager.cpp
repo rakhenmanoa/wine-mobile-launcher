@@ -26,6 +26,10 @@
 #include <QTimer>
 #include <QUuid>
 
+static bool wrapInSway(const QString &program, const QStringList &args,
+                       const QString &swayBinary, QString &outProgram,
+                       QStringList &outArgs, QString &error);
+
 GameManager::GameManager(QObject *parent)
     : QObject(parent)
 {
@@ -725,27 +729,33 @@ void GameManager::launchGame(int row)
     if (!extra.isEmpty())
         payload += extra;
 
-    // Plein écran : Wine tourne dans un bureau virtuel (« wml ») aux dimensions
-    // physiques de l'écran dans son orientation actuelle ; une règle de fenêtre
-    // KWin force cette fenêtre en plein écran (plus de barre de navigation).
-    // L'orientation du système n'est jamais modifiée : pour jouer en paysage,
-    // tourner l'écran (rotation automatique de Plasma) avant de lancer le jeu.
+    // Plein écran (paysage) : seul le jeu est pivoté, pas l'écran du système.
+    // Le jeu tourne dans un sway imbriqué (wlroots, backend Wayland) dont la
+    // sortie est tournée de 90° et dont les fenêtres sont en plein écran ;
+    // Wine passe par l'Xwayland de sway. La fenêtre de sway est elle-même
+    // passée en plein écran par une règle de fenêtre KWin. Sans sway, repli
+    // sur un bureau virtuel Wine paysage, sans rotation de l'image.
+    QString swayBinary;
     if (game.fullscreen) {
-        const QScreen *screen = QGuiApplication::primaryScreen();
-        // Pixels PHYSIQUES : Qt rapporte la géométrie logique.
-        const qreal dpr = screen ? screen->devicePixelRatio() : 1.0;
-        const QRect geom = screen ? screen->geometry() : QRect();
-        QSize desktop(1280, 720);
-        if (!geom.isEmpty())
-            desktop = QSize(qRound(geom.width() * dpr), qRound(geom.height() * dpr));
-        payload.prepend(QStringLiteral("/desktop=wml,%1x%2")
-                            .arg(desktop.width()).arg(desktop.height()));
-        payload.prepend(QStringLiteral("explorer"));
-        appendLog(QStringLiteral("Plein écran : bureau virtuel Wine %1×%2%3.")
-                      .arg(desktop.width()).arg(desktop.height())
-                      .arg(desktop.width() < desktop.height()
-                               ? QStringLiteral(" (écran en portrait : tournez-le en paysage avant de lancer)")
-                               : QString()));
+        swayBinary = QStandardPaths::findExecutable(QStringLiteral("sway"));
+        if (!swayBinary.isEmpty()) {
+            appendLog(QStringLiteral("Plein écran (paysage) : jeu lancé dans sway imbriqué, sortie pivotée de 90°."));
+        } else {
+            const QScreen *screen = QGuiApplication::primaryScreen();
+            // Pixels PHYSIQUES : Qt rapporte la géométrie logique.
+            const qreal dpr = screen ? screen->devicePixelRatio() : 1.0;
+            const QRect geom = screen ? screen->geometry() : QRect();
+            QSize landscape(1280, 720);
+            if (!geom.isEmpty())
+                landscape = QSize(qRound(qMax(geom.width(), geom.height()) * dpr),
+                                  qRound(qMin(geom.width(), geom.height()) * dpr));
+            payload.prepend(QStringLiteral("/desktop=wml,%1x%2")
+                                .arg(landscape.width()).arg(landscape.height()));
+            payload.prepend(QStringLiteral("explorer"));
+            appendLog(QStringLiteral("Plein écran (paysage) : sway introuvable (installez le paquet « sway ») — ")
+                      + QStringLiteral("bureau virtuel Wine %1×%2 sans rotation d'image.")
+                            .arg(landscape.width()).arg(landscape.height()));
+        }
     }
 
     QStringList arguments;
@@ -769,6 +779,20 @@ void GameManager::launchGame(int row)
         proc->setProgram(hudBinary);
         arguments.prepend(wine);
     }
+    bool swayWrapped = false;
+    if (!swayBinary.isEmpty()) {
+        QString swayError;
+        QString swayProgram;
+        QStringList swayArguments;
+        if (wrapInSway(proc->program(), arguments, swayBinary, swayProgram, swayArguments, swayError)) {
+            proc->setProgram(swayProgram);
+            arguments = swayArguments;
+            swayWrapped = true;
+        } else {
+            appendLog(QStringLiteral("Plein écran (paysage) : ") + swayError
+                      + QStringLiteral(" — lancement sans rotation."));
+        }
+    }
     proc->setArguments(arguments);
     proc->setWorkingDirectory(exeInfo.absolutePath());
 
@@ -788,9 +812,13 @@ void GameManager::launchGame(int row)
         }
     });
     connect(proc, &QProcess::finished, this,
-            [this, game](int exitCode, QProcess::ExitStatus status) {
+            [this, game, swayWrapped](int exitCode, QProcess::ExitStatus status) {
         m_processes.remove(game.id);
         m_model->setRunning(game.id, false);
+        // sway fermé (fenêtre fermée, crash) : Wine ne meurt pas avec lui,
+        // on arrête donc explicitement le jeu (wineserver -k).
+        if (swayWrapped)
+            stopForGame(game);
         const QString detail = (status == QProcess::CrashExit)
             ? QStringLiteral("crash")
             : QStringLiteral("code %1").arg(exitCode);
@@ -815,8 +843,82 @@ void GameManager::launchGame(int row)
     Q_EMIT gameLaunched(row, true, {});
 }
 
+// Enveloppe la commande du jeu dans un sway imbriqué dont la sortie est
+// tournée (WML_ROTATION = right (90°, défaut) | left (270°) | inverted (180°)).
+// Écrit dans le dossier de données de l'appli un script qui lance le jeu puis
+// demande à sway de quitter (swaymsg exit), et une config sway minimale :
+// Xwayland, sans bordures, toute fenêtre en plein écran. sway se connecte à
+// la session Wayland courante (backend Wayland de wlroots).
+static bool wrapInSway(const QString &program, const QStringList &args,
+                       const QString &swayBinary, QString &outProgram,
+                       QStringList &outArgs, QString &error)
+{
+    const QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    if (dir.isEmpty() || !QDir().mkpath(dir)) {
+        error = QStringLiteral("dossier de données inaccessible");
+        return false;
+    }
+    const auto quote = [](const QString &s) {
+        QString q = s;
+        q.replace(QStringLiteral("'"), QStringLiteral("'\\''"));
+        return QStringLiteral("'") + q + QStringLiteral("'");
+    };
+
+    const QString scriptPath = dir + QStringLiteral("/wml-sway-run.sh");
+    QFile script(scriptPath);
+    if (!script.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        error = QStringLiteral("impossible d'écrire ") + scriptPath;
+        return false;
+    }
+    // Le jeu tourne en arrière-plan ; le script surveille les sorties de sway
+    // (la fenêtre imbriquée fermée = plus de sortie) et arrête alors le jeu,
+    // puis quitte sway. Fin normale du jeu : sway quitte aussi.
+    QString body = QStringLiteral("#!/bin/sh\n") + quote(program);
+    for (const QString &a : args)
+        body += QStringLiteral(" ") + quote(a);
+    body += QStringLiteral(
+        " &\n"
+        "pid=$!\n"
+        "seen=0; zero=0; waited=0\n"
+        "while kill -0 \"$pid\" 2>/dev/null; do\n"
+        "    n=$(swaymsg -t get_outputs 2>/dev/null | grep -c '\"name\"')\n"
+        "    if [ \"$n\" -gt 0 ] 2>/dev/null; then seen=1; zero=0; else zero=$((zero+1)); fi\n"
+        "    waited=$((waited+1))\n"
+        "    if [ \"$seen\" = 1 ] && [ \"$zero\" -ge 2 ]; then kill \"$pid\" 2>/dev/null; break; fi\n"
+        "    if [ \"$seen\" = 0 ] && [ \"$waited\" -ge 20 ]; then kill \"$pid\" 2>/dev/null; break; fi\n"
+        "    sleep 1\n"
+        "done\n"
+        "swaymsg exit >/dev/null 2>&1\n");
+    script.write(body.toUtf8());
+    script.close();
+    script.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner
+                          | QFileDevice::ExeOwner);
+
+    const QString direction = qEnvironmentVariable("WML_ROTATION", QStringLiteral("right"));
+    const QString transform = direction == QLatin1String("left") ? QStringLiteral("270")
+                            : direction == QLatin1String("inverted") ? QStringLiteral("180")
+                            : QStringLiteral("90");
+    const QString confPath = dir + QStringLiteral("/wml-sway.conf");
+    QFile conf(confPath);
+    if (!conf.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        error = QStringLiteral("impossible d'écrire ") + confPath;
+        return false;
+    }
+    conf.write(QStringLiteral("xwayland enable\n"
+                              "default_border none\n"
+                              "output * transform %1\n"
+                              "for_window [shell=\".*\"] fullscreen enable\n"
+                              "exec %2\n").arg(transform, scriptPath).toUtf8());
+    conf.close();
+
+    outProgram = swayBinary;
+    outArgs = {QStringLiteral("-c"), confPath};
+    return true;
+}
+
 // Plein écran : installe (idempotent) des règles de fenêtre KWin qui forcent
-// le plein écran du bureau virtuel Wine (titre « wml »). KWin applique lui-même la règle dès que
+// le plein écran de la fenêtre imbriquée de sway (classe « wlroots ») et du
+// bureau virtuel Wine de repli (titre « wml »). KWin applique lui-même la règle dès que
 // la fenêtre apparaît : ni script, ni minuteur, ni pid. L'orientation du
 // système n'est jamais modifiée.
 void GameManager::ensureFullscreenWindowRules()
@@ -846,14 +948,14 @@ void GameManager::ensureFullscreenWindowRules()
 
     struct Rule { QString id, description, key, value; };
     const QList<Rule> rules = {
-        // Bureau virtuel Wine : titre « wml - Wine desktop ».
+        // Fenêtre imbriquée de sway : classe « wlroots » (backend Wayland).
+        {QStringLiteral("wml-fullscreen-sway"),
+         QStringLiteral("Wine Mobile Launcher : plein écran (sway)"),
+         QStringLiteral("wmclass"), QStringLiteral("wlroots")},
+        // Bureau virtuel Wine (repli sans sway) : titre « wml - Wine desktop ».
         {QStringLiteral("wml-fullscreen-desktop"),
          QStringLiteral("Wine Mobile Launcher : plein écran (bureau virtuel Wine)"),
          QStringLiteral("title"), QStringLiteral("wml")},
-        // Même fenêtre, par sa classe X11 (explorer.exe) si le titre diffère.
-        {QStringLiteral("wml-fullscreen-explorer"),
-         QStringLiteral("Wine Mobile Launcher : plein écran (explorer.exe)"),
-         QStringLiteral("wmclass"), QStringLiteral("explorer")},
     };
 
     // KWin récent liste ses règles dans « Order » (clé écrite par les
@@ -897,7 +999,7 @@ void GameManager::ensureFullscreenWindowRules()
     }
     run(dbusSend, {QStringLiteral("--session"), QStringLiteral("--dest=org.kde.KWin"),
                    QStringLiteral("/KWin"), QStringLiteral("org.kde.KWin.reconfigure")});
-    appendLog(QStringLiteral("Plein écran : règle de fenêtre KWin installée (bureau virtuel Wine)."));
+    appendLog(QStringLiteral("Plein écran : règle de fenêtre KWin installée (sway / bureau virtuel Wine)."));
 }
 
 void GameManager::stopForGame(const WineGame &game)
