@@ -195,7 +195,7 @@ Kirigami.Page {
                 Layout.fillWidth: true
                 wrapMode: Text.WordWrap
                 opacity: 0.8
-                text: "Plein écran paysage : pendant le jeu, l'écran est pivoté en paysage (libkscreen) puis restauré à la fin ; Wine tourne dans un bureau virtuel plein écran."
+                text: "Plein écran paysage : le jeu tourne dans un sway imbriqué (pacman -S sway) dont la sortie est pivotée de 90° — seul le jeu est pivoté, pas l'écran du système. Sans sway : bureau virtuel Wine en plein écran, sans rotation d'image."
             }
 
             RowLayout {

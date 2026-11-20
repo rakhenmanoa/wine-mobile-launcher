@@ -18,10 +18,6 @@ find_package(Qt6 6.8 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2)
 # if(QT6_VERSION ...) qui ne se déclenchait jamais.
 qt_standard_project_setup(REQUIRES 6.8)
 
-# libkscreen (KF6Screen) : rotation de l'écran pour l'option « plein écran
-# paysage ». Optionnelle : sans elle, l'appli compile et ne pivote pas l'écran.
-find_package(KF6Screen QUIET)
-
 qt_add_executable(wine-mobile-launcher src/main.cpp)
 
 qt_add_qml_module(wine-mobile-launcher
@@ -59,14 +55,6 @@ target_link_libraries(wine-mobile-launcher PRIVATE
     Qt6::Quick
     Qt6::QuickControls2
 )
-
-if(KF6Screen_FOUND)
-    message(STATUS "KF6Screen trouvé : rotation d'écran activée")
-    target_link_libraries(wine-mobile-launcher PRIVATE KF6::Screen)
-    target_compile_definitions(wine-mobile-launcher PRIVATE WML_HAVE_KSCREEN)
-else()
-    message(STATUS "KF6Screen introuvable : pas de rotation d'écran")
-endif()
 
 include(GNUInstallDirs)
 
