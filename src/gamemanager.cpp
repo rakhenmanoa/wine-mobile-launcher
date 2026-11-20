@@ -748,6 +748,8 @@ void GameManager::launchGame(int row)
                             .arg(landscape.width()).arg(landscape.height()));
         payload.prepend(QStringLiteral("explorer"));
         cageBinary = QStandardPaths::findExecutable(QStringLiteral("cage"));
+        if (!cageBinary.isEmpty() && QStandardPaths::findExecutable(QStringLiteral("Xwayland")).isEmpty())
+            appendLog(QStringLiteral("Plein écran (paysage) : Xwayland introuvable (installez xorg-xwayland) — cage ne pourra pas héberger Wine."));
         if (!cageBinary.isEmpty())
             appendLog(QStringLiteral("Plein écran (paysage) : rendu pivoté de 90° via cage, bureau virtuel Wine %1×%2 (pixels physiques, dimensions inversées).")
                           .arg(landscape.width()).arg(landscape.height()));
@@ -829,10 +831,13 @@ void GameManager::launchGame(int row)
     proc->start();
     if (game.fullscreen) {
         // La fenêtre de cage (ou du bureau virtuel sans cage) est passée en
-        // plein écran par KWin, via un script one-shot : retenté une fois
-        // au cas où la fenêtre n'était pas encore mappée.
-        QTimer::singleShot(3500, this, [this]() { requestDesktopFullscreen(); });
-        QTimer::singleShot(8000, this, [this]() { requestDesktopFullscreen(); });
+        // plein écran par KWin, via un script one-shot. La fenêtre de cage
+        // est retrouvée par le pid du processus (son app-id réel est
+        // « wlroots », pas « cage ») ; plusieurs essais échelonnés, car la
+        // fenêtre peut ne pas être encore mappée.
+        const qint64 pid = cageBinary.isEmpty() ? 0 : proc->processId();
+        for (const int delay : {2000, 4000, 8000, 15000})
+            QTimer::singleShot(delay, this, [this, pid]() { requestDesktopFullscreen(pid); });
     }
     Q_EMIT gameLaunched(row, true, {});
 }
@@ -842,7 +847,7 @@ void GameManager::launchGame(int row)
 // (org.kde.KWin /Scripting). C'est KWin qui décide de l'affichage ;
 // kscreen-doctor n'est pas utilisé et l'orientation du système n'est
 // jamais modifiée.
-void GameManager::requestDesktopFullscreen()
+void GameManager::requestDesktopFullscreen(qint64 pid)
 {
     const QString dir = QStandardPaths::writableLocation(
                             QStandardPaths::AppDataLocation);
@@ -854,20 +859,30 @@ void GameManager::requestDesktopFullscreen()
     // Compatible Plasma 6 (windowList / fullscreen) et Plasma 5
     // (clientList / fullScreen) ; cible la fenêtre de cage ou celle du
     // bureau virtuel Wine (« wml », wine, explorer).
-    file.write(R"JS(
+    // La fenêtre imbriquée de cage a pour app-id « wlroots » (backend
+    // Wayland de wlroots) et pour titre « wlroots - WL-1 » : on la retrouve
+    // surtout par pid (les clients Wayland exposent leur pid à KWin), et à
+    // défaut par classe/titre.
+    file.write(QString::fromUtf8(R"JS(
+const targetPid = %1;
 const list = (workspace.windowList ? workspace.windowList()
             : (workspace.clientList ? workspace.clientList() : []));
 for (let i = 0; i < list.length; i++) {
     const w = list[i];
     const c = String(w.resourceClass || "").toLowerCase();
+    const n = String(w.resourceName || "").toLowerCase();
     const t = String(w.caption || "").toLowerCase();
-    if (c.indexOf("cage") >= 0 || c.indexOf("wine") >= 0
-        || c.indexOf("explorer") >= 0 || t.indexOf("wml") >= 0) {
+    const byPid = targetPid > 0 && w.pid === targetPid;
+    const byName = c.indexOf("wlroots") >= 0 || t.indexOf("wlroots") >= 0
+        || c.indexOf("cage") >= 0 || n.indexOf("cage") >= 0
+        || c.indexOf("wine") >= 0 || c.indexOf("explorer") >= 0
+        || t.indexOf("wml") >= 0;
+    if (byPid || byName) {
         if ("fullscreen" in w) w.fullscreen = true;
         else if ("fullScreen" in w) w.fullScreen = true;
     }
 }
-)JS");
+)JS").arg(pid).toUtf8());
     file.close();
 
     const QString dbusSend = QStandardPaths::findExecutable(QStringLiteral("dbus-send"));

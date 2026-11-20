@@ -16,7 +16,8 @@ depends=('qt6-base' 'qt6-declarative' 'kirigami' 'qqc2-desktop-style' 'breeze-ic
 optdepends=('wine: executer les applications Windows'
             'winetricks: composants de prefixes (integration UI a venir)'
             'mangohud: overlay de performances (option MangoHud par jeu)'
-            'cage: plein ecran paysage avec rotation d image (option par jeu)')
+            'cage: plein ecran paysage avec rotation d image (option par jeu)'
+            'xorg-xwayland: necessaire a cage pour heberger Wine (plein ecran paysage)')
 makedepends=('git' 'cmake' 'qt6-base' 'qt6-declarative')
 # En CI : commit exact (WML_COMMIT). En local : dernière révision de la branche
 # main (« #commit=HEAD » réutilisait un ancien checkout en cache dans src/).

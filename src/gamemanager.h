@@ -110,7 +110,8 @@ private:
     void stopForGame(const WineGame &game);
     // Plein écran : passe la fenêtre du bureau virtuel Wine en plein écran
     // via un script KWin one-shot (DBus), sans toucher à l'écran du système.
-    void requestDesktopFullscreen();
+    // pid : processus cage (0 = inconnu) — la fenêtre de cage est retrouvée par pid.
+    void requestDesktopFullscreen(qint64 pid = 0);
     void appendLog(const QString &line);
     void writeLogFile(const QString &line);
     void appendProcessOutput(const QString &gameName, const QString &text);
