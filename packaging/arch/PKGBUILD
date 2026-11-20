@@ -5,8 +5,8 @@
 # un paquet à la version du tag, et sa GitHub Release. En local (makepkg
 # direct), la version par défaut s'applique.
 pkgname=wine-mobile-launcher
-pkgver="${WML_PKGVER:-0.2.6}"
-pkgrel="${WML_PKGREL:-3}"
+pkgver="${WML_PKGVER:-0.2.7}"
+pkgrel="${WML_PKGREL:-1}"
 pkgdesc="Lanceur d'applications Windows (Wine) pour Plasma Mobile, style Lutris (Qt6/Kirigami)"
 arch=('x86_64' 'aarch64')
 url="https://github.com/rakhenmanoa/wine-mobile-launcher"
