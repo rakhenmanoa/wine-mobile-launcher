@@ -1,15 +1,11 @@
 name: Build
 
-# Chaque push sur main compile et publie une GitHub Release (pré-version
-# vX.Y.Z-N : X.Y.Z lu dans CMakeLists.txt, N = numéro d'exécution, qui devient
-# le pkgrel du paquet). Un tag vX.Y.Z[-N] poussé à la main publie, lui, une
-# release normale. Les releases sont créées par GitHub Actions, tag compris.
+# Ne compile QUE les versions publiées : un tag vX.Y.Z (major/minor/patch).
+# Les pushes sur main ne déclenchent plus rien — plus de build de test
+# manuel pour l'instant (workflow_dispatch retiré à la demande). Chaque tag
+# produit sa GitHub Release, nouvelle à chaque fois, avec les paquets attachés.
 on:
   push:
-    branches:
-      - main
-    paths-ignore:
-      - '*.md'
     tags:
       - 'v*.*.*'
 
@@ -22,25 +18,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Version publiée : le tag poussé, ou vX.Y.Z-N calculé pour un push sur main.
-  version:
-    name: Version
-    runs-on: ubuntu-latest
-    outputs:
-      tag: ${{ steps.v.outputs.tag }}
-    steps:
-      - uses: actions/checkout@v4
-      - id: v
-        run: |
-          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
-            tag="$GITHUB_REF_NAME"
-          else
-            base="$(sed -n 's/^project(wine-mobile-launcher VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)"
-            tag="v${base}-${GITHUB_RUN_NUMBER}"
-          fi
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "Version publiée : $tag"
-
   # Build natif rapide sur Arch x86_64 : vérifie la compilation sans émulation.
   native-x86_64:
     name: Build natif (Arch x86_64)
@@ -73,10 +50,8 @@ jobs:
     name: PKGBUILD Arch Linux ARM (aarch64, runner ARM natif)
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 60
-    needs: version
     env:
       WML_COMMIT: ${{ github.sha }}
-      TAG: ${{ needs.version.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
 
@@ -93,17 +68,19 @@ jobs:
       # makepkg -s installe lui-même depends + makedepends du PKGBUILD.
       - name: makepkg (aarch64)
         run: |
-          # vX.Y.Z -> pkgver X.Y.Z ; vX.Y.Z-N -> pkgver X.Y.Z + pkgrel N
-          # (un pkgver pacman ne peut pas contenir de tiret). Autre suffixe
-          # (ex. -rc1) -> accolé au pkgver avec un point.
-          tag="${TAG#v}"
-          export WML_PKGVER="${tag%%-*}"
-          if [[ "$tag" == *-* ]]; then
-            suffix="${tag#*-}"
-            if [[ "$suffix" =~ ^[0-9]+$ ]]; then
-              export WML_PKGREL="$suffix"
-            else
-              export WML_PKGVER="${WML_PKGVER}.${suffix//-/.}"
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            # vX.Y.Z -> pkgver X.Y.Z ; vX.Y.Z-N -> pkgver X.Y.Z + pkgrel N
+            # (un pkgver pacman ne peut pas contenir de tiret). Autre suffixe
+            # (ex. -rc1) -> accolé au pkgver avec un point.
+            tag="${GITHUB_REF_NAME#v}"
+            export WML_PKGVER="${tag%%-*}"
+            if [[ "$tag" == *-* ]]; then
+              suffix="${tag#*-}"
+              if [[ "$suffix" =~ ^[0-9]+$ ]]; then
+                export WML_PKGREL="$suffix"
+              else
+                export WML_PKGVER="${WML_PKGVER}.${suffix//-/.}"
+              fi
             fi
           fi
           mkdir -p artifacts
@@ -152,10 +129,9 @@ jobs:
   # chaque nouveau tag — jamais de réécrasement d'une version publiée.
   release:
     name: Publication de la GitHub Release
-    needs: [version, native-x86_64, alarm-aarch64]
+    needs: [native-x86_64, alarm-aarch64]
+    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
-    env:
-      TAG: ${{ needs.version.outputs.tag }}
     steps:
       - name: Récupérer les artefacts des deux builds
         uses: actions/download-artifact@v4
@@ -167,14 +143,10 @@ jobs:
           mkdir -p release
           cp -v artifacts/pkg-alarm-aarch64/*.pkg.tar.* release/
           cp -v artifacts/wine-mobile-launcher-x86_64/wine-mobile-launcher \
-            "release/wine-mobile-launcher-${TAG#v}-x86_64"
+            "release/wine-mobile-launcher-${GITHUB_REF_NAME#v}-x86_64"
           ls -la release
 
       - name: Créer la release et y joindre les paquets
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ needs.version.outputs.tag }}
-          target_commitish: ${{ github.sha }}
-          prerelease: ${{ github.ref_type != 'tag' }}
-          generate_release_notes: true
           files: release/*
