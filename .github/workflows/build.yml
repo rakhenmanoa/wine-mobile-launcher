@@ -43,69 +43,29 @@ jobs:
           if-no-files-found: error
 
   # Cible principale : Arch Linux ARM (aarch64) via PKGBUILD.
-  # Le rootfs ALARM est importé comme image Docker et exécuté sous QEMU
-  # (binfmt enregistré par docker/setup-qemu-action, indépendant de l'image
-  # Ubuntu du runner et de ses paquets qemu-*).
+  # Runner ARM64 natif (ubuntu-24.04-arm) : le rootfs ALARM est importé comme
+  # image Docker et s'exécute directement, sans émulation QEMU (compilation et
+  # pacman bien plus rapides qu'en émulé). Même approche que Cemu-arm64.
   alarm-aarch64:
-    name: PKGBUILD Arch Linux ARM (aarch64, QEMU/Docker)
-    runs-on: ubuntu-latest
-    timeout-minutes: 120
+    name: PKGBUILD Arch Linux ARM (aarch64, runner ARM natif)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
     env:
       WML_COMMIT: ${{ github.sha }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Enregistrer l'émulation aarch64 (binfmt)
-        uses: docker/setup-qemu-action@v3
-        with:
-          platforms: arm64
-
       - name: Télécharger et importer le rootfs Arch Linux ARM
         run: |
-          curl -fL --retry 3 -o /tmp/alarm-rootfs.tar.gz \
+          curl -fsSL --retry 3 -o /tmp/alarm-rootfs.tar.gz \
             http://os.archlinuxarm.org/os/ArchLinuxARM-aarch64-latest.tar.gz
           docker import /tmp/alarm-rootfs.tar.gz alarm:rootfs
-
-      # Étape lente (mise à jour complète + Qt6 sous émulation) : isolée dans
-      # une image dérivée via docker commit, pour séparer les échecs.
-      - name: Préparer l'image ALARM (pacman + dépendances)
-        run: |
-          docker run --name alarm-prep -v "$PWD:/work:ro" alarm:rootfs bash -euc '
-            # Landlock est indisponible dans ce conteneur : pacman (6.1+) refuse
-            # de télécharger tant que son sandbox de téléchargement est actif.
-            if pacman --disable-sandbox --version >/dev/null 2>&1; then
-              PACMAN_OPTS="--disable-sandbox"
-            else
-              # pacman 6.1 (sans le flag) : désactivation via la configuration.
-              PACMAN_OPTS=""
-              sed -i "s/^#\?SandboxUser.*/SandboxUser = root/" /etc/pacman.conf
-              grep -q "^SandboxUser" /etc/pacman.conf || printf "\nSandboxUser = root\n" >> /etc/pacman.conf
-            fi
-            sed -i "s/^CheckSpace/#CheckSpace/" /etc/pacman.conf
-            pacman-key --init
-            pacman-key --populate archlinuxarm
-            pacman $PACMAN_OPTS -Syu --noconfirm
-            # -Syu a pu remplacer pacman (6.1 -> 7.x) : re-tester le flag et
-            # retirer une directive devenue inconnue pour la nouvelle version.
-            if pacman --disable-sandbox --version >/dev/null 2>&1; then
-              PACMAN_OPTS="--disable-sandbox"
-              sed -i "s/^SandboxUser.*//" /etc/pacman.conf
-            fi
-            # Source du PKGBUILD : les dépendances déclarées du paquet sont
-            # préinstallées ici (makepkg tourne en non-root et ne peut rien
-            # installer lui-même), donc prep et PKGBUILD restent en phase.
-            . /work/packaging/arch/PKGBUILD
-            pacman $PACMAN_OPTS -S --noconfirm --needed \
-              base-devel git cmake "${depends[@]}" "${makedepends[@]}"
-          '
-          docker commit alarm-prep alarm:build
-          docker rm alarm-prep
+          rm -f /tmp/alarm-rootfs.tar.gz
 
       # makepkg refuse root : tout se fait via l'utilisateur builduser.
       # WML_COMMIT (sha du tag) fixe le commit source ; WML_PKGVER (tag sans
-      # son « v ») versionne le paquet d'après la version publiée. Sur un
-      # run manuel (branche), WML_PKGVER reste vide : le PKGBUILD garde sa
-      # valeur par défaut.
+      # son « v ») versionne le paquet d'après la version publiée.
+      # makepkg -s installe lui-même depends + makedepends du PKGBUILD.
       - name: makepkg (aarch64)
         run: |
           if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
@@ -117,14 +77,28 @@ jobs:
             -e WML_PKGVER \
             -v "$PWD:/work:ro" \
             -v "$PWD/artifacts:/out" \
-            alarm:build bash -euc '
+            alarm:rootfs bash -euxc '
+              # En conteneur : pas de test d espace disque, pas de sandbox
+              # Landlock, pas de mise à jour du noyau (inutile, hooks en échec).
+              sed -i "s/^CheckSpace/#CheckSpace/" /etc/pacman.conf
+              sed -i "/^\[options\]/a DisableSandbox" /etc/pacman.conf
+              sed -i "/^\[options\]/a IgnorePkg = linux-aarch64 linux-aarch64-headers" /etc/pacman.conf
+              sed -i "s/^#ParallelDownloads.*/ParallelDownloads = 5/" /etc/pacman.conf
+              pacman-key --init
+              pacman-key --populate archlinuxarm
+              pacman -Syu --noconfirm --needed base-devel git sudo
+
               useradd -m builduser
+              echo "builduser ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/builduser
               mkdir -p /home/builduser/build
               cp /work/packaging/arch/PKGBUILD /home/builduser/build/PKGBUILD
               chown -R builduser:builduser /home/builduser/build
               cd /home/builduser/build
-              su -l builduser -c "cd ~/build && makepkg --printsrcinfo > /out/.SRCINFO"
-              su -l builduser -c "cd ~/build && makepkg -f --noconfirm"
+              sudo -Hu builduser env WML_COMMIT="$WML_COMMIT" WML_PKGVER="$WML_PKGVER" \
+                bash -c "makepkg --printsrcinfo > /home/builduser/build/.SRCINFO"
+              sudo -Hu builduser env WML_COMMIT="$WML_COMMIT" WML_PKGVER="$WML_PKGVER" \
+                makepkg -sf --noconfirm
+              cp -v /home/builduser/build/.SRCINFO /out/
               cp -v /home/builduser/build/*.pkg.tar.* /out/
             '
 
