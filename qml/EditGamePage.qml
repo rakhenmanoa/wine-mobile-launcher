@@ -195,7 +195,7 @@ Kirigami.Page {
                 Layout.fillWidth: true
                 wrapMode: Text.WordWrap
                 opacity: 0.8
-                text: "Plein écran paysage : le jeu tourne dans un sway imbriqué (pacman -S sway) dont la sortie est pivotée de 90° — seul le jeu est pivoté, pas l'écran du système. Sans sway : bureau virtuel Wine en plein écran, sans rotation d'image."
+                text: "Plein écran paysage : le jeu tourne dans un sway imbriqué (pacman -S sway) dont la sortie est pivotée de 90° — seul le jeu est pivoté, pas l'écran du système. Il démarre en fenêtré, puis le launcher le passe en plein écran via KWin (qdbus6, paquet qt6-tools). Sans sway : bureau virtuel Wine, passé en plein écran de la même façon, sans rotation d'image."
             }
 
             RowLayout {
