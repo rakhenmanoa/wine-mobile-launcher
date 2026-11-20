@@ -835,10 +835,31 @@ void GameManager::launchGame(int row)
     saveLibrary();
     appendLog(QStringLiteral("Lancement de « ") + game.name + QStringLiteral(" » (préfixe : ")
               + prefix + QStringLiteral(")…"));
-    // Plein écran : règle de fenêtre KWin (permanente, elle doit exister
-    // avant la création de la fenêtre).
-    if (game.fullscreen)
-        ensureFullscreenWindowRules();
+    // Plein écran : la fenêtre démarre en mode fenêtré (un plein écran forcé à
+    // la création laisse la sortie sway noire). On neutralise d'abord les
+    // règles KWin, puis on les active une fois le jeu affiché.
+    if (game.fullscreen) {
+        ensureFullscreenWindowRules(false);
+        const QString marker = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
+                               + QStringLiteral("/wml-game-ready");
+        QFile::remove(marker);
+        auto *timer = new QTimer(proc);
+        timer->setInterval(500);
+        int ticks = 0;
+        connect(timer, &QTimer::timeout, this, [this, timer, marker, swayWrapped, ticks]() mutable {
+            ++ticks;
+            // sway : le script crée le marqueur quand une fenêtre du jeu existe ;
+            // sans sway : délai fixe de 8 s.
+            const bool ready = swayWrapped ? QFile::exists(marker) : ticks >= 16;
+            if (ready || ticks >= 180) {
+                timer->stop();
+                QFile::remove(marker);
+                if (ready)
+                    ensureFullscreenWindowRules(true);
+            }
+        });
+        timer->start();
+    }
     proc->start();
     Q_EMIT gameLaunched(row, true, {});
 }
@@ -892,8 +913,11 @@ static bool wrapInSway(const QString &program, const QStringList &args,
     body += QStringLiteral(
         " &\n"
         "pid=$!\n"
-        "seen=0; zero=0; waited=0\n"
+        "seen=0; zero=0; waited=0; ready=0\n"
         "while kill -0 \"$pid\" 2>/dev/null; do\n"
+        "    if [ \"$ready\" = 0 ] && swaymsg -t get_tree 2>/dev/null | grep -q '\"shell\": \"xwayland\"'; then\n"
+        "        ready=1; sleep 1; touch %1\n"
+        "    fi\n"
         "    n=$(swaymsg -t get_outputs 2>/dev/null | grep -c '\"name\"')\n"
         "    if [ \"$n\" -gt 0 ] 2>/dev/null; then seen=1; zero=0; else zero=$((zero+1)); fi\n"
         "    waited=$((waited+1))\n"
@@ -901,7 +925,8 @@ static bool wrapInSway(const QString &program, const QStringList &args,
         "    if [ \"$seen\" = 0 ] && [ \"$waited\" -ge 20 ]; then kill \"$pid\" 2>/dev/null; break; fi\n"
         "    sleep 1\n"
         "done\n"
-        "swaymsg exit >/dev/null 2>&1\n");
+        "swaymsg exit >/dev/null 2>&1\n")
+                .arg(quote(dir + QStringLiteral("/wml-game-ready")));
     script.write(body.toUtf8());
     script.close();
     script.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner
@@ -934,7 +959,7 @@ static bool wrapInSway(const QString &program, const QStringList &args,
 // bureau virtuel Wine de repli (titre « wml »). KWin applique lui-même la règle dès que
 // la fenêtre apparaît : ni script, ni minuteur, ni pid. L'orientation du
 // système n'est jamais modifiée.
-void GameManager::ensureFullscreenWindowRules()
+void GameManager::ensureFullscreenWindowRules(bool enable)
 {
     QString writer = QStandardPaths::findExecutable(QStringLiteral("kwriteconfig6"));
     QString reader = QStandardPaths::findExecutable(QStringLiteral("kreadconfig6"));
@@ -1001,7 +1026,8 @@ void GameManager::ensureFullscreenWindowRules()
         if (r.key == QLatin1String("wmclass"))
             write(r.id, QStringLiteral("wmclasscomplete"), QStringLiteral("false"));
         write(r.id, QStringLiteral("fullscreen"), QStringLiteral("true"));
-        write(r.id, QStringLiteral("fullscreenrule"), QStringLiteral("2")); // forcer
+        write(r.id, QStringLiteral("fullscreenrule"),
+              enable ? QStringLiteral("2") : QStringLiteral("1")); // forcer / ne pas toucher
     }
     const QString joined = ids.join(QLatin1Char(','));
     write(QStringLiteral("General"), QStringLiteral("Order"), joined);
@@ -1017,7 +1043,8 @@ void GameManager::ensureFullscreenWindowRules()
     }
     run(dbusSend, {QStringLiteral("--session"), QStringLiteral("--dest=org.kde.KWin"),
                    QStringLiteral("/KWin"), QStringLiteral("org.kde.KWin.reconfigure")});
-    appendLog(QStringLiteral("Plein écran : règle de fenêtre KWin installée (sway / bureau virtuel Wine)."));
+    if (enable)
+        appendLog(QStringLiteral("Plein écran : règle de fenêtre KWin activée (jeu affiché)."));
 }
 
 void GameManager::stopForGame(const WineGame &game)
