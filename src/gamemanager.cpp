@@ -14,6 +14,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonValue>
+#include <QList>
 #include <QProcessEnvironment>
 #include <QRegularExpression>
 #include <QSaveFile>
@@ -828,104 +829,91 @@ void GameManager::launchGame(int row)
     saveLibrary();
     appendLog(QStringLiteral("Lancement de « ") + game.name + QStringLiteral(" » (préfixe : ")
               + prefix + QStringLiteral(")…"));
+    // Plein écran : une règle de fenêtre KWin (permanente) force le plein
+    // écran des fenêtres de cage / du bureau virtuel Wine. Elle doit exister
+    // avant la création de la fenêtre.
+    if (game.fullscreen)
+        ensureFullscreenWindowRules();
     proc->start();
-    if (game.fullscreen) {
-        // La fenêtre de cage (ou du bureau virtuel sans cage) est passée en
-        // plein écran par KWin, via un script one-shot. La fenêtre de cage
-        // est retrouvée par le pid du processus (son app-id réel est
-        // « wlroots », pas « cage ») ; plusieurs essais échelonnés, car la
-        // fenêtre peut ne pas être encore mappée.
-        const qint64 pid = cageBinary.isEmpty() ? 0 : proc->processId();
-        for (const int delay : {2000, 4000, 8000, 15000})
-            QTimer::singleShot(delay, this, [this, pid]() { requestDesktopFullscreen(pid); });
-    }
     Q_EMIT gameLaunched(row, true, {});
 }
 
-// Plein écran : passe la fenêtre de cage (kiosque) ou du bureau virtuel
-// Wine en plein écran via un script KWin one-shot chargé par DBus
-// (org.kde.KWin /Scripting). C'est KWin qui décide de l'affichage ;
-// kscreen-doctor n'est pas utilisé et l'orientation du système n'est
-// jamais modifiée.
-void GameManager::requestDesktopFullscreen(qint64 pid)
+// Plein écran : installe (idempotent) des règles de fenêtre KWin qui forcent
+// le plein écran de la fenêtre imbriquée de cage (app-id « wlroots ») et du
+// bureau virtuel Wine (titre « wml »). KWin applique lui-même la règle dès que
+// la fenêtre apparaît : ni script, ni minuteur, ni pid. L'orientation du
+// système n'est jamais modifiée.
+void GameManager::ensureFullscreenWindowRules()
 {
-    const QString dir = QStandardPaths::writableLocation(
-                            QStandardPaths::AppDataLocation);
-    if (!QDir().mkpath(dir))
-        return;
-    QFile file(dir + QStringLiteral("/kwin-wml-fullscreen.js"));
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate))
-        return;
-    // Compatible Plasma 6 (windowList / fullscreen) et Plasma 5
-    // (clientList / fullScreen) ; cible la fenêtre de cage ou celle du
-    // bureau virtuel Wine (« wml », wine, explorer).
-    // La fenêtre imbriquée de cage a pour app-id « wlroots » (backend
-    // Wayland de wlroots) et pour titre « wlroots - WL-1 » : on la retrouve
-    // surtout par pid (les clients Wayland exposent leur pid à KWin), et à
-    // défaut par classe/titre.
-    file.write(QString::fromUtf8(R"JS(
-const targetPid = %1;
-const list = (workspace.windowList ? workspace.windowList()
-            : (workspace.clientList ? workspace.clientList() : []));
-for (let i = 0; i < list.length; i++) {
-    const w = list[i];
-    const c = String(w.resourceClass || "").toLowerCase();
-    const n = String(w.resourceName || "").toLowerCase();
-    const t = String(w.caption || "").toLowerCase();
-    const byPid = targetPid > 0 && w.pid === targetPid;
-    const byName = c.indexOf("wlroots") >= 0 || t.indexOf("wlroots") >= 0
-        || c.indexOf("cage") >= 0 || n.indexOf("cage") >= 0
-        || c.indexOf("wine") >= 0 || c.indexOf("explorer") >= 0
-        || t.indexOf("wml") >= 0;
-    if (byPid || byName) {
-        if ("fullscreen" in w) w.fullscreen = true;
-        else if ("fullScreen" in w) w.fullScreen = true;
+    QString writer = QStandardPaths::findExecutable(QStringLiteral("kwriteconfig6"));
+    QString reader = QStandardPaths::findExecutable(QStringLiteral("kreadconfig6"));
+    if (writer.isEmpty() || reader.isEmpty()) {
+        writer = QStandardPaths::findExecutable(QStringLiteral("kwriteconfig5"));
+        reader = QStandardPaths::findExecutable(QStringLiteral("kreadconfig5"));
     }
-}
-)JS").arg(pid).toUtf8());
-    file.close();
+    if (writer.isEmpty() || reader.isEmpty()) {
+        appendLog(QStringLiteral("Plein écran : kwriteconfig introuvable (paquet kconfig) — ")
+                  + QStringLiteral("règle KWin non installée, passez la fenêtre en plein écran à la main."));
+        return;
+    }
+    const auto run = [](const QString &program, const QStringList &args) {
+        QProcess p;
+        p.start(program, args);
+        if (!p.waitForStarted(3000) || !p.waitForFinished(5000))
+            return QString();
+        return QString::fromUtf8(p.readAllStandardOutput()).trimmed();
+    };
+    const auto write = [&](const QString &group, const QString &key, const QString &value) {
+        run(writer, {QStringLiteral("--file"), QStringLiteral("kwinrulesrc"),
+                     QStringLiteral("--group"), group, QStringLiteral("--key"), key, value});
+    };
 
+    struct Rule { QString id, description, key, value; };
+    const QList<Rule> rules = {
+        // Fenêtre imbriquée de cage : classe « wlroots » (sous-chaîne).
+        {QStringLiteral("wml-fullscreen-cage"),
+         QStringLiteral("Wine Mobile Launcher : plein écran (cage)"),
+         QStringLiteral("wmclass"), QStringLiteral("wlroots")},
+        // Bureau virtuel Wine sans cage : titre « wml - Wine desktop ».
+        {QStringLiteral("wml-fullscreen-desktop"),
+         QStringLiteral("Wine Mobile Launcher : plein écran (bureau virtuel Wine)"),
+         QStringLiteral("title"), QStringLiteral("wml")},
+    };
+
+    QStringList ids = run(reader, {QStringLiteral("--file"), QStringLiteral("kwinrulesrc"),
+                                   QStringLiteral("--group"), QStringLiteral("General"),
+                                   QStringLiteral("--key"), QStringLiteral("rules")})
+                          .split(QLatin1Char(','), Qt::SkipEmptyParts);
+    bool changed = false;
+    for (const Rule &r : rules) {
+        const bool known = ids.contains(r.id);
+        if (!known) {
+            ids << r.id;
+            changed = true;
+        }
+        write(r.id, QStringLiteral("Description"), r.description);
+        write(r.id, r.key, r.value);
+        write(r.id, r.key + QStringLiteral("match"), QStringLiteral("2")); // sous-chaîne
+        if (r.key == QLatin1String("wmclass"))
+            write(r.id, QStringLiteral("wmclasscomplete"), QStringLiteral("false"));
+        write(r.id, QStringLiteral("fullscreen"), QStringLiteral("true"));
+        write(r.id, QStringLiteral("fullscreenrule"), QStringLiteral("2")); // forcer
+    }
+    if (changed) {
+        write(QStringLiteral("General"), QStringLiteral("rules"), ids.join(QLatin1Char(',')));
+        write(QStringLiteral("General"), QStringLiteral("count"), QString::number(ids.size()));
+    }
+
+    // KWin relit ses règles.
     const QString dbusSend = QStandardPaths::findExecutable(QStringLiteral("dbus-send"));
     if (dbusSend.isEmpty()) {
-        appendLog(QStringLiteral("Plein écran : dbus-send introuvable, la fenêtre ")
-                  + QStringLiteral("du bureau virtuel ne passera pas en plein ")
-                  + QStringLiteral("écran automatiquement."));
+        appendLog(QStringLiteral("Plein écran : dbus-send introuvable — règle KWin écrite, ")
+                  + QStringLiteral("mais KWin ne l'a pas rechargée (déconnexion/reconnexion nécessaire)."));
         return;
     }
-    QProcess call;
-    const auto callDbus = [&call, &dbusSend](const QStringList &args) {
-        call.start(dbusSend, args);
-        if (!call.waitForStarted(3000) || !call.waitForFinished(5000))
-            return QString();
-        return QString::fromUtf8(call.readAllStandardOutput());
-    };
-    // Nom unique à chaque appel : un second essai ne collisionne pas avec
-    // le script déjà chargé par le premier (le journal montrait un échec
-    // « non chargé » au second essai à cause du nom partagé).
-    const QString name = QStringLiteral("wmlfullscreen-%1")
-                             .arg(QDateTime::currentMSecsSinceEpoch());
-    const QString out = callDbus({QStringLiteral("--session"),
-        QStringLiteral("--print-reply"), QStringLiteral("--dest=org.kde.KWin"),
-        QStringLiteral("/Scripting"),
-        QStringLiteral("org.kde.kwin.Scripting.loadScript"),
-        QStringLiteral("string:") + file.fileName(),
-        QStringLiteral("string:") + name});
-    static const QRegularExpression idRe(QStringLiteral("int32\\s+(\\d+)"));
-    const QRegularExpressionMatch match = idRe.match(out);
-    if (!match.hasMatch()) {
-        appendLog(QStringLiteral("Plein écran : script KWin non chargé (KWin ")
-                  + QStringLiteral("n'a pas répondu ?)."));
-        return;
-    }
-    callDbus({QStringLiteral("--session"), QStringLiteral("--dest=org.kde.KWin"),
-              QStringLiteral("/Scripting/Script") + match.captured(1),
-              QStringLiteral("org.kde.kwin.Script.run")});
-    appendLog(QStringLiteral("Plein écran : demande de plein écran envoyée à KWin."));
-    // Le script one-shot a tourné : on décharge son entrée chez KWin.
-    callDbus({QStringLiteral("--session"), QStringLiteral("--dest=org.kde.KWin"),
-              QStringLiteral("/Scripting"),
-              QStringLiteral("org.kde.kwin.Scripting.unloadScript"),
-              QStringLiteral("string:") + name});
+    run(dbusSend, {QStringLiteral("--session"), QStringLiteral("--dest=org.kde.KWin"),
+                   QStringLiteral("/KWin"), QStringLiteral("org.kde.KWin.reconfigure")});
+    appendLog(QStringLiteral("Plein écran : règle de fenêtre KWin installée (cage / bureau virtuel Wine)."));
 }
 
 void GameManager::stopForGame(const WineGame &game)
