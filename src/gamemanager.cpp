@@ -1,5 +1,12 @@
 #include "gamemanager.h"
 
+#ifdef WML_HAVE_KSCREEN
+#include <KScreen/Config>
+#include <KScreen/GetConfigOperation>
+#include <KScreen/Output>
+#include <KScreen/SetConfigOperation>
+#endif
+
 #include <cstdio>
 
 #include <QDateTime>
@@ -21,7 +28,7 @@
 #include <QScreen>
 #include <QStandardPaths>
 #include <QStringList>
-#include <QThread>
+#include <QEventLoop>
 #include <QSysInfo>
 #include <QTemporaryDir>
 #include <QTimer>
@@ -726,7 +733,7 @@ void GameManager::launchGame(int row)
     if (!extra.isEmpty())
         payload += extra;
 
-    // Plein écran (paysage) : l'écran est pivoté par kscreen-doctor le temps
+    // Plein écran (paysage) : l'écran est pivoté par libkscreen le temps
     // du jeu (rotateScreenForGame, restauré à la fin), et Wine tourne dans un
     // bureau virtuel aux dimensions paysage de l'écran, passé en plein écran
     // par une règle de fenêtre KWin. cage n'est plus utilisé : son option
@@ -819,11 +826,12 @@ void GameManager::launchGame(int row)
     Q_EMIT gameLaunched(row, true, {});
 }
 
-// Rotation de l'écran pour un jeu en plein écran paysage : kscreen-doctor
-// (paquet libkscreen) tourne la première sortie active de 90° (sens réglable
-// par la variable d'environnement WML_ROTATION = right | left | inverted,
-// « right » par défaut) ; l'orientation d'origine est restaurée à la fin du
-// jeu. Rien n'est fait si l'écran est déjà en paysage.
+// Rotation de l'écran pour un jeu plein écran paysage, via l'API libkscreen
+// (celle de kscreen-doctor et de la rotation de Plasma Mobile) : la première
+// sortie active est tournée de 90° (sens réglable par la variable
+// d'environnement WML_ROTATION = right | left | inverted, « right » par
+// défaut) et son orientation d'origine est restaurée à la fin du jeu. Rien
+// n'est fait si l'écran est déjà en paysage.
 bool GameManager::rotateScreenForGame(const QString &gameId)
 {
     const QScreen *screen = QGuiApplication::primaryScreen();
@@ -831,79 +839,90 @@ bool GameManager::rotateScreenForGame(const QString &gameId)
         appendLog(QStringLiteral("Plein écran (paysage) : l'écran est déjà en paysage."));
         return true;
     }
-    const QString kscreen = QStandardPaths::findExecutable(QStringLiteral("kscreen-doctor"));
-    if (kscreen.isEmpty()) {
-        appendLog(QStringLiteral("Plein écran (paysage) : kscreen-doctor introuvable (paquet libkscreen) — ")
+#ifdef WML_HAVE_KSCREEN
+    auto *get = new KScreen::GetConfigOperation();
+    if (!get->exec() || !get->config()) {
+        appendLog(QStringLiteral("Plein écran (paysage) : configuration d'écran illisible (KScreen) — ")
                   + QStringLiteral("l'écran ne sera pas pivoté."));
         return false;
     }
-    const auto run = [](const QString &program, const QStringList &args, int *exitCode) {
-        QProcess p;
-        p.start(program, args);
-        if (!p.waitForStarted(3000) || !p.waitForFinished(8000)) {
-            if (exitCode) *exitCode = -1;
-            return QString();
-        }
-        if (exitCode) *exitCode = p.exitCode();
-        return QString::fromUtf8(p.readAllStandardOutput());
-    };
-
-    // Première sortie active et son orientation courante (1 normal, 2 gauche,
-    // 4 inversé, 8 droite — valeurs de KScreen::Output::Rotation).
-    const QJsonDocument doc = QJsonDocument::fromJson(
-        run(kscreen, {QStringLiteral("-j")}, nullptr).toUtf8());
-    QString output;
-    int rotation = 1;
-    for (const QJsonValue &v : doc.object().value(QLatin1String("outputs")).toArray()) {
-        const QJsonObject o = v.toObject();
-        if (o.value(QLatin1String("enabled")).toBool()) {
-            output = o.value(QLatin1String("name")).toString();
-            rotation = o.value(QLatin1String("rotation")).toInt(1);
+    const KScreen::ConfigPtr config = get->config();
+    KScreen::OutputPtr target;
+    const auto outputs = config->outputs();
+    for (const KScreen::OutputPtr &o : outputs) {
+        if (o->isConnected() && o->isEnabled()) {
+            target = o;
             break;
         }
     }
-    if (output.isEmpty()) {
-        appendLog(QStringLiteral("Plein écran (paysage) : sortie d'écran introuvable via kscreen-doctor -j."));
+    if (!target) {
+        appendLog(QStringLiteral("Plein écran (paysage) : aucune sortie d'écran active (KScreen)."));
         return false;
     }
 
-    QString direction = qEnvironmentVariable("WML_ROTATION", QStringLiteral("right"));
-    if (direction != QLatin1String("left") && direction != QLatin1String("inverted"))
-        direction = QStringLiteral("right");
-    int code = 0;
-    run(kscreen, {QStringLiteral("output.%1.rotation.%2").arg(output, direction)}, &code);
-    if (code != 0) {
-        appendLog(QStringLiteral("Plein écran (paysage) : kscreen-doctor a échoué (code %1).").arg(code));
+    const QString direction = qEnvironmentVariable("WML_ROTATION", QStringLiteral("right"));
+    KScreen::Output::Rotation wanted = KScreen::Output::Right;
+    if (direction == QLatin1String("left"))
+        wanted = KScreen::Output::Left;
+    else if (direction == QLatin1String("inverted"))
+        wanted = KScreen::Output::Inverted;
+
+    const QString name = target->name();
+    const int original = static_cast<int>(target->rotation());
+    target->setRotation(wanted);
+    auto *set = new KScreen::SetConfigOperation(config);
+    if (!set->exec()) {
+        appendLog(QStringLiteral("Plein écran (paysage) : KScreen a refusé la rotation de %1.").arg(name));
         return false;
     }
     m_rotatedGameId = gameId;
-    m_rotatedOutput = output;
-    switch (rotation) {
-    case 2:  m_rotatedOriginal = QStringLiteral("left"); break;
-    case 4:  m_rotatedOriginal = QStringLiteral("inverted"); break;
-    case 8:  m_rotatedOriginal = QStringLiteral("right"); break;
-    default: m_rotatedOriginal = QStringLiteral("none"); break;
-    }
+    m_rotatedOutput = name;
+    m_rotatedOriginal = original;
     appendLog(QStringLiteral("Plein écran (paysage) : écran %1 pivoté (%2), restauré à la fin du jeu.")
-                  .arg(output, direction));
-    // Laisse KWin/Plasma appliquer la nouvelle géométrie avant Wine.
-    QThread::msleep(1500);
+                  .arg(name, direction));
+
+    // Attend (4 s max) que Plasma applique la nouvelle géométrie avant de
+    // lancer Wine, pour que le bureau virtuel prenne la bonne taille.
+    for (int i = 0; i < 40; ++i) {
+        const QScreen *s = QGuiApplication::primaryScreen();
+        if (s && s->geometry().width() > s->geometry().height())
+            break;
+        QEventLoop loop;
+        QTimer::singleShot(100, &loop, &QEventLoop::quit);
+        loop.exec();
+    }
     return true;
+#else
+    Q_UNUSED(gameId)
+    appendLog(QStringLiteral("Plein écran (paysage) : compilé sans KScreen (paquet libkscreen) — ")
+              + QStringLiteral("l'écran ne sera pas pivoté."));
+    return false;
+#endif
 }
 
 void GameManager::restoreScreenRotation(const QString &gameId)
 {
     if (m_rotatedOutput.isEmpty() || m_rotatedGameId != gameId)
         return;
-    const QString kscreen = QStandardPaths::findExecutable(QStringLiteral("kscreen-doctor"));
-    if (!kscreen.isEmpty()) {
-        QProcess::execute(kscreen, {QStringLiteral("output.%1.rotation.%2")
-                                        .arg(m_rotatedOutput, m_rotatedOriginal)});
-        appendLog(QStringLiteral("Plein écran (paysage) : orientation de l'écran restaurée."));
+#ifdef WML_HAVE_KSCREEN
+    auto *get = new KScreen::GetConfigOperation();
+    if (get->exec() && get->config()) {
+        const KScreen::ConfigPtr config = get->config();
+        const auto outputs = config->outputs();
+        for (const KScreen::OutputPtr &o : outputs) {
+            if (o->name() == m_rotatedOutput) {
+                o->setRotation(static_cast<KScreen::Output::Rotation>(m_rotatedOriginal));
+                auto *set = new KScreen::SetConfigOperation(config);
+                set->exec();
+                appendLog(QStringLiteral("Plein écran (paysage) : orientation de l'écran restaurée."));
+                break;
+            }
+        }
     }
+#endif
     m_rotatedGameId.clear();
     m_rotatedOutput.clear();
-    m_rotatedOriginal.clear();
+    m_rotatedOriginal = 1;
 }
 
 // Plein écran : installe (idempotent) des règles de fenêtre KWin qui forcent

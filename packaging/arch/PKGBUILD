@@ -12,11 +12,10 @@ arch=('x86_64' 'aarch64')
 url="https://github.com/rakhenmanoa/wine-mobile-launcher"
 license=('MIT')
 depends=('qt6-base' 'qt6-declarative' 'kirigami' 'qqc2-desktop-style' 'breeze-icons'
-         'icoutils')
+         'icoutils' 'libkscreen')
 optdepends=('wine: executer les applications Windows'
             'winetricks: composants de prefixes (integration UI a venir)'
             'mangohud: overlay de performances (option MangoHud par jeu)'
-            'libkscreen: kscreen-doctor, rotation de l ecran en plein ecran paysage (option par jeu)'
             'kconfig: kwriteconfig, regle KWin de plein ecran (option par jeu)')
 makedepends=('git' 'cmake' 'qt6-base' 'qt6-declarative')
 # En CI : commit exact (WML_COMMIT). En local : dernière révision de la branche

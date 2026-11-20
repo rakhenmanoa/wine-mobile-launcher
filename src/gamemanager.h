@@ -111,7 +111,7 @@ private:
     // Plein écran : installe des règles de fenêtre KWin (kwinrulesrc) qui
     // forcent le plein écran du bureau virtuel Wine.
     void ensureFullscreenWindowRules();
-    // Rotation de l'écran (kscreen-doctor) pendant un jeu plein écran paysage.
+    // Rotation de l'écran (libkscreen) pendant un jeu plein écran paysage.
     bool rotateScreenForGame(const QString &gameId);
     void restoreScreenRotation(const QString &gameId);
     void appendLog(const QString &line);
@@ -139,5 +139,5 @@ private:
     // Écran pivoté pour un jeu plein écran paysage (à restaurer à sa fin).
     QString m_rotatedGameId;
     QString m_rotatedOutput;
-    QString m_rotatedOriginal;
+    int m_rotatedOriginal = 1; // KScreen::Output::Rotation d'origine (1 = normal)
 };
