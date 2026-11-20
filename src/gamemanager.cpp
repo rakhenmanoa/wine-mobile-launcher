@@ -952,6 +952,11 @@ void GameManager::ensureFullscreenWindowRules()
         {QStringLiteral("wml-fullscreen-sway"),
          QStringLiteral("Wine Mobile Launcher : plein écran (sway)"),
          QStringLiteral("wmclass"), QStringLiteral("wlroots")},
+        // Même fenêtre de sway, par son titre (« wlroots - WL-1 ») au cas où la
+        // classe ne serait pas celle attendue.
+        {QStringLiteral("wml-fullscreen-sway-title"),
+         QStringLiteral("Wine Mobile Launcher : plein écran (sway, titre)"),
+         QStringLiteral("title"), QStringLiteral("wlroots")},
         // Bureau virtuel Wine (repli sans sway) : titre « wml - Wine desktop ».
         {QStringLiteral("wml-fullscreen-desktop"),
          QStringLiteral("Wine Mobile Launcher : plein écran (bureau virtuel Wine)"),
