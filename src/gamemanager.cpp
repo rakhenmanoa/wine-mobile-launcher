@@ -2,6 +2,9 @@
 
 #include <cstdio>
 
+#include <QDBusConnection>
+#include <QDBusInterface>
+#include <QDBusReply>
 #include <QDateTime>
 #include <QDesktopServices>
 #include <QDir>
@@ -25,10 +28,68 @@
 #include <QTemporaryDir>
 #include <QTimer>
 #include <QUuid>
+#include <memory>
 
 static bool wrapInSway(const QString &program, const QStringList &args,
                        const QString &swayBinary, QString &outProgram,
                        QStringList &outArgs, QString &error);
+
+namespace {
+// Empêche la mise en veille et l'extinction de l'écran tant qu'un jeu tourne :
+// inhibitions KDE/freedesktop (écran + gestion d'énergie), liées à la
+// connexion D-Bus de l'appli (libérées d'office si elle plante).
+struct IdleInhibit {
+    quint32 screen = 0;
+    quint32 power = 0;
+    bool hasScreen = false;
+    bool hasPower = false;
+};
+
+IdleInhibit acquireIdleInhibit(const QString &reason)
+{
+    IdleInhibit h;
+    const QString app = QStringLiteral("Wine Mobile Launcher");
+    QDBusInterface screen(QStringLiteral("org.freedesktop.ScreenSaver"),
+                          QStringLiteral("/ScreenSaver"),
+                          QStringLiteral("org.freedesktop.ScreenSaver"));
+    if (screen.isValid()) {
+        const QDBusReply<quint32> r = screen.call(QStringLiteral("Inhibit"), app, reason);
+        if (r.isValid()) {
+            h.screen = r.value();
+            h.hasScreen = true;
+        }
+    }
+    QDBusInterface power(QStringLiteral("org.freedesktop.PowerManagement"),
+                         QStringLiteral("/org/freedesktop/PowerManagement/Inhibit"),
+                         QStringLiteral("org.freedesktop.PowerManagement.Inhibit"));
+    if (power.isValid()) {
+        const QDBusReply<quint32> r = power.call(QStringLiteral("Inhibit"), app, reason);
+        if (r.isValid()) {
+            h.power = r.value();
+            h.hasPower = true;
+        }
+    }
+    return h;
+}
+
+void releaseIdleInhibit(const IdleInhibit &h)
+{
+    if (h.hasScreen) {
+        QDBusInterface screen(QStringLiteral("org.freedesktop.ScreenSaver"),
+                              QStringLiteral("/ScreenSaver"),
+                              QStringLiteral("org.freedesktop.ScreenSaver"));
+        if (screen.isValid())
+            screen.call(QStringLiteral("UnInhibit"), h.screen);
+    }
+    if (h.hasPower) {
+        QDBusInterface power(QStringLiteral("org.freedesktop.PowerManagement"),
+                             QStringLiteral("/org/freedesktop/PowerManagement/Inhibit"),
+                             QStringLiteral("org.freedesktop.PowerManagement.Inhibit"));
+        if (power.isValid())
+            power.call(QStringLiteral("UnInhibit"), h.power);
+    }
+}
+} // namespace
 
 GameManager::GameManager(QObject *parent)
     : QObject(parent)
@@ -796,6 +857,12 @@ void GameManager::launchGame(int row)
     proc->setArguments(arguments);
     proc->setWorkingDirectory(exeInfo.absolutePath());
 
+    // Pas de mise en veille / extinction d'écran pendant le jeu.
+    auto inhibit = std::make_shared<IdleInhibit>(
+        acquireIdleInhibit(QStringLiteral("Jeu en cours : ") + game.name));
+    if (inhibit->hasScreen || inhibit->hasPower)
+        appendLog(QStringLiteral("Veille et extinction d'écran suspendues pendant le jeu."));
+
     connect(proc, &QProcess::readyReadStandardOutput, this, [this, game, proc]() {
         appendProcessOutput(game.name, QString::fromLocal8Bit(proc->readAllStandardOutput()));
     });
@@ -803,8 +870,9 @@ void GameManager::launchGame(int row)
         appendProcessOutput(game.name, QString::fromLocal8Bit(proc->readAllStandardError()));
     });
     connect(proc, &QProcess::errorOccurred, this,
-            [this, game](QProcess::ProcessError error) {
+            [this, game, inhibit](QProcess::ProcessError error) {
         if (error == QProcess::FailedToStart) {
+            releaseIdleInhibit(*inhibit);
             appendLog(QStringLiteral("Impossible de démarrer « ") + game.name
                       + QStringLiteral(" » : binaire Wine/Proton invalide ?"));
             m_processes.remove(game.id);
@@ -812,7 +880,8 @@ void GameManager::launchGame(int row)
         }
     });
     connect(proc, &QProcess::finished, this,
-            [this, game, swayWrapped](int exitCode, QProcess::ExitStatus status) {
+            [this, game, swayWrapped, inhibit](int exitCode, QProcess::ExitStatus status) {
+        releaseIdleInhibit(*inhibit);
         m_processes.remove(game.id);
         m_model->setRunning(game.id, false);
         // sway fermé (fenêtre fermée, crash) : Wine ne meurt pas avec lui,

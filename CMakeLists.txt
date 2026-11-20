@@ -1,12 +1,12 @@
 cmake_minimum_required(VERSION 3.21)
 
-project(wine-mobile-launcher VERSION 0.2.11 LANGUAGES CXX)
+project(wine-mobile-launcher VERSION 0.2.12 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 
-find_package(Qt6 6.8 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2)
+find_package(Qt6 6.8 REQUIRED COMPONENTS Core DBus Gui Qml Quick QuickControls2)
 
 # REQUIRES 6.8 : pose QTP0001..QTP0005 en NEW. QTP0001 est crucial : il place
 # le module sous /qt/qml/, exactement là où main.cpp charge main.qml
@@ -50,6 +50,7 @@ target_include_directories(wine-mobile-launcher PRIVATE
 
 target_link_libraries(wine-mobile-launcher PRIVATE
     Qt6::Core
+    Qt6::DBus
     Qt6::Gui
     Qt6::Qml
     Qt6::Quick
