@@ -109,7 +109,7 @@ private:
     QString defaultPrefixFor(const QString &gameName) const;
     void stopForGame(const WineGame &game);
     // Plein écran : installe des règles de fenêtre KWin (kwinrulesrc) qui
-    // forcent le plein écran de sway imbriqué / du bureau virtuel Wine.
+    // forcent le plein écran du bureau virtuel Wine.
     void ensureFullscreenWindowRules();
     void appendLog(const QString &line);
     void writeLogFile(const QString &line);
