@@ -1013,6 +1013,7 @@ static bool wrapInSway(const QString &program, const QStringList &args,
     }
     conf.write(QStringLiteral("xwayland enable\n"
                               "default_border none\n"
+                              "output * scale 1\n"
                               "output * transform %1\n"
                               "for_window [shell=\".*\"] fullscreen enable\n"
                               "exec %2\n").arg(transform, scriptPath).toUtf8());
