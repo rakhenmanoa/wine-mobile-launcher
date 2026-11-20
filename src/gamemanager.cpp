@@ -958,17 +958,25 @@ void GameManager::ensureFullscreenWindowRules()
          QStringLiteral("title"), QStringLiteral("wml")},
     };
 
-    QStringList ids = run(reader, {QStringLiteral("--file"), QStringLiteral("kwinrulesrc"),
-                                   QStringLiteral("--group"), QStringLiteral("General"),
-                                   QStringLiteral("--key"), QStringLiteral("rules")})
-                          .split(QLatin1Char(','), Qt::SkipEmptyParts);
-    bool changed = false;
+    // KWin récent liste ses règles dans « Order » (clé écrite par les
+    // Paramètres système) ; « rules » et « count » sont les anciennes clés.
+    // Les règles qui ne figurent pas dans « Order » sont ignorées : on tient
+    // donc les trois à jour, en conservant les règles existantes de l'utilisateur.
+    const auto readList = [&](const QString &key) {
+        return run(reader, {QStringLiteral("--file"), QStringLiteral("kwinrulesrc"),
+                            QStringLiteral("--group"), QStringLiteral("General"),
+                            QStringLiteral("--key"), key})
+            .split(QLatin1Char(','), Qt::SkipEmptyParts);
+    };
+    const QStringList orderIds = readList(QStringLiteral("Order"));
+    QStringList ids = orderIds;
+    for (const QString &old : readList(QStringLiteral("rules"))) {
+        if (!ids.contains(old))
+            ids << old;
+    }
     for (const Rule &r : rules) {
-        const bool known = ids.contains(r.id);
-        if (!known) {
+        if (!ids.contains(r.id))
             ids << r.id;
-            changed = true;
-        }
         write(r.id, QStringLiteral("Description"), r.description);
         write(r.id, r.key, r.value);
         write(r.id, r.key + QStringLiteral("match"), QStringLiteral("2")); // sous-chaîne
@@ -977,10 +985,10 @@ void GameManager::ensureFullscreenWindowRules()
         write(r.id, QStringLiteral("fullscreen"), QStringLiteral("true"));
         write(r.id, QStringLiteral("fullscreenrule"), QStringLiteral("2")); // forcer
     }
-    if (changed) {
-        write(QStringLiteral("General"), QStringLiteral("rules"), ids.join(QLatin1Char(',')));
-        write(QStringLiteral("General"), QStringLiteral("count"), QString::number(ids.size()));
-    }
+    const QString joined = ids.join(QLatin1Char(','));
+    write(QStringLiteral("General"), QStringLiteral("Order"), joined);
+    write(QStringLiteral("General"), QStringLiteral("rules"), joined);
+    write(QStringLiteral("General"), QStringLiteral("count"), QString::number(ids.size()));
 
     // KWin relit ses règles.
     const QString dbusSend = QStandardPaths::findExecutable(QStringLiteral("dbus-send"));
