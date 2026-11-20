@@ -873,7 +873,20 @@ static bool wrapInSway(const QString &program, const QStringList &args,
     // Le jeu tourne en arrière-plan ; le script surveille les sorties de sway
     // (la fenêtre imbriquée fermée = plus de sortie) et arrête alors le jeu,
     // puis quitte sway. Fin normale du jeu : sway quitte aussi.
-    QString body = QStringLiteral("#!/bin/sh\n") + quote(program);
+    // Avant de lancer le jeu, attendre que la fenêtre sway ait sa taille
+    // définitive : KWin la passe en plein écran (règle) après sa création, et
+    // un jeu démarré pendant ce redimensionnement reste derrière un écran noir.
+    QString body = QStringLiteral(
+        "#!/bin/sh\n"
+        "prev=''; stable=0; t=0\n"
+        "while [ \"$t\" -lt 40 ]; do\n"
+        "    cur=$(swaymsg -t get_outputs 2>/dev/null | grep -m1 'Current mode')\n"
+        "    if [ -n \"$cur\" ] && [ \"$cur\" = \"$prev\" ]; then stable=$((stable+1)); else stable=0; fi\n"
+        "    prev=\"$cur\"\n"
+        "    [ \"$stable\" -ge 4 ] && break\n"
+        "    t=$((t+1)); sleep 0.5\n"
+        "done\n")
+        + quote(program);
     for (const QString &a : args)
         body += QStringLiteral(" ") + quote(a);
     body += QStringLiteral(
