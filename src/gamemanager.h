@@ -111,6 +111,7 @@ private:
     // Plein écran : installe des règles de fenêtre KWin (kwinrulesrc) qui
     // forcent le plein écran de sway imbriqué / du bureau virtuel Wine.
     void ensureFullscreenWindowRules(bool enable);
+    void applyFullscreenScript();
     void appendLog(const QString &line);
     void writeLogFile(const QString &line);
     void appendProcessOutput(const QString &gameName, const QString &text);

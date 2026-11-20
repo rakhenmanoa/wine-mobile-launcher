@@ -855,7 +855,7 @@ void GameManager::launchGame(int row)
                 timer->stop();
                 QFile::remove(marker);
                 if (ready)
-                    ensureFullscreenWindowRules(true);
+                    applyFullscreenScript();
             }
         });
         timer->start();
@@ -952,6 +952,61 @@ static bool wrapInSway(const QString &program, const QStringList &args,
     outProgram = swayBinary;
     outArgs = {QStringLiteral("-c"), confPath};
     return true;
+}
+
+// Plein écran : charge dans KWin (D-Bus, org.kde.kwin.Scripting) un petit
+// script qui met en plein écran la fenêtre sway (« wlroots ») ou le bureau
+// virtuel Wine (« wml »), puis le décharge. Pas de règle persistante.
+void GameManager::applyFullscreenScript()
+{
+    QString qdbus = QStandardPaths::findExecutable(QStringLiteral("qdbus6"));
+    if (qdbus.isEmpty())
+        qdbus = QStandardPaths::findExecutable(QStringLiteral("qdbus-qt6"));
+    if (qdbus.isEmpty())
+        qdbus = QStandardPaths::findExecutable(QStringLiteral("qdbus"));
+    if (qdbus.isEmpty()) {
+        appendLog(QStringLiteral("Plein écran : qdbus6 introuvable (paquet qt6-tools)."));
+        return;
+    }
+    const QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    QDir().mkpath(dir);
+    const QString path = dir + QStringLiteral("/wml-fullscreen.js");
+    QFile js(path);
+    if (!js.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        appendLog(QStringLiteral("Plein écran : impossible d'écrire ") + path);
+        return;
+    }
+    js.write("var list = (typeof workspace.windowList === 'function') ? workspace.windowList() : workspace.clientList();\n"
+             "for (var i = 0; i < list.length; ++i) {\n"
+             "    var w = list[i];\n"
+             "    var cls = String(w.resourceClass || w.resourceName || '');\n"
+             "    var cap = String(w.caption || '');\n"
+             "    if (cls.indexOf('wlroots') >= 0 || cap.indexOf('wlroots') >= 0 || cap.indexOf('wml - Wine') === 0)\n"
+             "        w.fullScreen = true;\n"
+             "}\n");
+    js.close();
+
+    const auto call = [&](const QStringList &args) {
+        QProcess p;
+        p.start(qdbus, args);
+        if (!p.waitForStarted(3000) || !p.waitForFinished(5000))
+            return QString();
+        return QString::fromUtf8(p.readAllStandardOutput()).trimmed();
+    };
+    const QString name = QStringLiteral("wml-fullscreen");
+    call({QStringLiteral("org.kde.KWin"), QStringLiteral("/Scripting"),
+          QStringLiteral("org.kde.kwin.Scripting.unloadScript"), name});
+    const QString id = call({QStringLiteral("org.kde.KWin"), QStringLiteral("/Scripting"),
+                             QStringLiteral("org.kde.kwin.Scripting.loadScript"), path, name});
+    if (id.isEmpty() || id == QLatin1String("-1")) {
+        appendLog(QStringLiteral("Plein écran : KWin a refusé le script."));
+        return;
+    }
+    call({QStringLiteral("org.kde.KWin"), QStringLiteral("/Scripting/Script") + id,
+          QStringLiteral("org.kde.kwin.Script.run")});
+    call({QStringLiteral("org.kde.KWin"), QStringLiteral("/Scripting"),
+          QStringLiteral("org.kde.kwin.Scripting.unloadScript"), name});
+    appendLog(QStringLiteral("Plein écran : demandé à KWin (script)."));
 }
 
 // Plein écran : installe (idempotent) des règles de fenêtre KWin qui forcent
