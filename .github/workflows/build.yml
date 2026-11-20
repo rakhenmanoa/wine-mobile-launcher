@@ -69,12 +69,25 @@ jobs:
       - name: makepkg (aarch64)
         run: |
           if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
-            export WML_PKGVER="${GITHUB_REF_NAME#v}"
+            # vX.Y.Z -> pkgver X.Y.Z ; vX.Y.Z-N -> pkgver X.Y.Z + pkgrel N
+            # (un pkgver pacman ne peut pas contenir de tiret). Autre suffixe
+            # (ex. -rc1) -> accolé au pkgver avec un point.
+            tag="${GITHUB_REF_NAME#v}"
+            export WML_PKGVER="${tag%%-*}"
+            if [[ "$tag" == *-* ]]; then
+              suffix="${tag#*-}"
+              if [[ "$suffix" =~ ^[0-9]+$ ]]; then
+                export WML_PKGREL="$suffix"
+              else
+                export WML_PKGVER="${WML_PKGVER}.${suffix//-/.}"
+              fi
+            fi
           fi
           mkdir -p artifacts
           docker run --rm \
             -e WML_COMMIT \
             -e WML_PKGVER \
+            -e WML_PKGREL \
             -v "$PWD:/work:ro" \
             -v "$PWD/artifacts:/out" \
             alarm:rootfs bash -euxc '
@@ -94,9 +107,9 @@ jobs:
               cp /work/packaging/arch/PKGBUILD /home/builduser/build/PKGBUILD
               chown -R builduser:builduser /home/builduser/build
               cd /home/builduser/build
-              sudo -Hu builduser env WML_COMMIT="$WML_COMMIT" WML_PKGVER="$WML_PKGVER" \
+              sudo -Hu builduser env WML_COMMIT="$WML_COMMIT" WML_PKGVER="$WML_PKGVER" WML_PKGREL="$WML_PKGREL" \
                 bash -c "makepkg --printsrcinfo > /home/builduser/build/.SRCINFO"
-              sudo -Hu builduser env WML_COMMIT="$WML_COMMIT" WML_PKGVER="$WML_PKGVER" \
+              sudo -Hu builduser env WML_COMMIT="$WML_COMMIT" WML_PKGVER="$WML_PKGVER" WML_PKGREL="$WML_PKGREL" \
                 makepkg -sf --noconfirm
               cp -v /home/builduser/build/.SRCINFO /out/
               cp -v /home/builduser/build/*.pkg.tar.* /out/
