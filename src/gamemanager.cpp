@@ -779,6 +779,7 @@ void GameManager::launchGame(int row)
         proc->setProgram(hudBinary);
         arguments.prepend(wine);
     }
+    bool swayWrapped = false;
     if (!swayBinary.isEmpty()) {
         QString swayError;
         QString swayProgram;
@@ -786,6 +787,7 @@ void GameManager::launchGame(int row)
         if (wrapInSway(proc->program(), arguments, swayBinary, swayProgram, swayArguments, swayError)) {
             proc->setProgram(swayProgram);
             arguments = swayArguments;
+            swayWrapped = true;
         } else {
             appendLog(QStringLiteral("Plein écran (paysage) : ") + swayError
                       + QStringLiteral(" — lancement sans rotation."));
@@ -810,9 +812,13 @@ void GameManager::launchGame(int row)
         }
     });
     connect(proc, &QProcess::finished, this,
-            [this, game](int exitCode, QProcess::ExitStatus status) {
+            [this, game, swayWrapped](int exitCode, QProcess::ExitStatus status) {
         m_processes.remove(game.id);
         m_model->setRunning(game.id, false);
+        // sway fermé (fenêtre fermée, crash) : Wine ne meurt pas avec lui,
+        // on arrête donc explicitement le jeu (wineserver -k).
+        if (swayWrapped)
+            stopForGame(game);
         const QString detail = (status == QProcess::CrashExit)
             ? QStringLiteral("crash")
             : QStringLiteral("code %1").arg(exitCode);
@@ -864,10 +870,25 @@ static bool wrapInSway(const QString &program, const QStringList &args,
         error = QStringLiteral("impossible d'écrire ") + scriptPath;
         return false;
     }
+    // Le jeu tourne en arrière-plan ; le script surveille les sorties de sway
+    // (la fenêtre imbriquée fermée = plus de sortie) et arrête alors le jeu,
+    // puis quitte sway. Fin normale du jeu : sway quitte aussi.
     QString body = QStringLiteral("#!/bin/sh\n") + quote(program);
     for (const QString &a : args)
         body += QStringLiteral(" ") + quote(a);
-    body += QStringLiteral("\nswaymsg exit >/dev/null 2>&1\n");
+    body += QStringLiteral(
+        " &\n"
+        "pid=$!\n"
+        "seen=0; zero=0; waited=0\n"
+        "while kill -0 \"$pid\" 2>/dev/null; do\n"
+        "    n=$(swaymsg -t get_outputs 2>/dev/null | grep -c '\"name\"')\n"
+        "    if [ \"$n\" -gt 0 ] 2>/dev/null; then seen=1; zero=0; else zero=$((zero+1)); fi\n"
+        "    waited=$((waited+1))\n"
+        "    if [ \"$seen\" = 1 ] && [ \"$zero\" -ge 2 ]; then kill \"$pid\" 2>/dev/null; break; fi\n"
+        "    if [ \"$seen\" = 0 ] && [ \"$waited\" -ge 20 ]; then kill \"$pid\" 2>/dev/null; break; fi\n"
+        "    sleep 1\n"
+        "done\n"
+        "swaymsg exit >/dev/null 2>&1\n");
     script.write(body.toUtf8());
     script.close();
     script.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner
