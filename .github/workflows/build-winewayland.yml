@@ -79,8 +79,10 @@ jobs:
 
       - name: Configurer
         run: |
+          # libxkbcommon de Ubuntu 24.04 (1.6) n'a pas XKB_VMOD_NAME_SCROLL (1.8+)
+          printf '%s\n' '#ifndef XKB_VMOD_NAME_SCROLL' '#define XKB_VMOD_NAME_SCROLL "ScrollLock"' '#endif' > "$PWD/xkbcompat.h"
           mkdir build && cd build
-          ../wine/configure --enable-win64 --disable-tests \
+          CFLAGS="-g -O2 -include $GITHUB_WORKSPACE/xkbcompat.h" ../wine/configure --enable-win64 --disable-tests \
             --with-wayland --without-x
 
       - name: Compiler winewayland.so
