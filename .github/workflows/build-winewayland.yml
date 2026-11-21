@@ -23,7 +23,7 @@ jobs:
       - name: Dépendances
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential autoconf bison flex gettext pkg-config git \
+          sudo apt-get install -y build-essential clang lld llvm autoconf bison flex gettext pkg-config git \
             libwayland-dev wayland-protocols libxkbcommon-dev libvulkan-dev \
             libegl-dev libgl-dev libfreetype-dev libfontconfig-dev libgnutls28-dev \
             libunwind-dev libdbus-1-dev libudev-dev libpulse-dev libsdl2-dev
@@ -51,7 +51,7 @@ jobs:
       - name: Configurer
         run: |
           mkdir build && cd build
-          ../wine/configure --enable-win64 --without-mingw --disable-tests \
+          ../wine/configure --enable-win64 --disable-tests \
             --with-wayland --without-x
 
       - name: Compiler winewayland.so
