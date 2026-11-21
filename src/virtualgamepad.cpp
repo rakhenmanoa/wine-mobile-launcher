@@ -1,5 +1,6 @@
 #include "virtualgamepad.h"
 
+#include <QProcess>
 #include <QRegion>
 #include <QWindow>
 
@@ -153,6 +154,16 @@ void VirtualGamepad::button(int code, bool pressed)
     Q_UNUSED(code)
     Q_UNUSED(pressed)
 #endif
+}
+
+void VirtualGamepad::goHome()
+{
+    // Plasma Mobile : « Afficher le bureau » ramène à l'écran d'accueil.
+    QProcess::startDetached(QStringLiteral("qdbus6"),
+                            {QStringLiteral("org.kde.kglobalaccel"),
+                             QStringLiteral("/component/kwin"),
+                             QStringLiteral("org.kde.kglobalaccel.Component.invokeShortcut"),
+                             QStringLiteral("Show Desktop")});
 }
 
 void VirtualGamepad::axis(int code, double value)
