@@ -7,7 +7,7 @@ paysage et le compositeur les pivote (`wl_surface.set_buffer_transform`).
 
 - Variable d'environnement : `WINE_WAYLAND_ROTATE=90` ou `270` (sens de rotation
   à choisir selon l'orientation du téléphone). Absente : aucun changement.
-- Base : Wine de **GE-Proton11-12** (ValveSoftware/wine, commit `fda79a5`).
+- Base : Wine de **GE-Proton11-12** (ValveSoftware/wine, commit `fda79a5`) + les patchs `wine-wayland`, `wineland-child-rendering` et `em-fixups` de GE-Proton, appliqués dans le même ordre que son script de préparation.
 - Seul `winewayland.so` (côté Unix, aarch64) change : le CI le compile et le
   publie en artefact. À copier dans le dossier de Proton :
   `files/lib/wine/aarch64-unix/winewayland.so` (garder une copie de l'original).
