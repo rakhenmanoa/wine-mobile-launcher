@@ -47,6 +47,7 @@ jobs:
         run: |
           cd wine
           [ -x configure ] || autoconf
+          [ -f include/config.h.in ] || autoheader
 
       - name: Configurer
         run: |
