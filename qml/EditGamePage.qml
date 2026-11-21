@@ -29,6 +29,7 @@ Kirigami.ScrollablePage {
             mangohudCheck.checked = g.mangohud
             fullscreenCheck.checked = g.fullscreen
             gamepadCheck.checked = g.gamepad
+            zinkCheck.checked = g.zink
         }
         loaded = true
     }
@@ -68,12 +69,12 @@ Kirigami.ScrollablePage {
             GameManager.updateGame(root.gameIndex, nameField.text, exeField.text,
                                    argsField.text, prefixField.text, wineField.text,
                                    protonField.text, iconField.text, mangohudCheck.checked,
-                                   fullscreenCheck.checked, gamepadCheck.checked)
+                                   fullscreenCheck.checked, gamepadCheck.checked, zinkCheck.checked)
         } else {
             GameManager.addGame(nameField.text, exeField.text, argsField.text,
                                 prefixField.text, wineField.text, protonField.text,
                                 iconField.text, mangohudCheck.checked,
-                                fullscreenCheck.checked, gamepadCheck.checked)
+                                fullscreenCheck.checked, gamepadCheck.checked, zinkCheck.checked)
         }
         if (closePage)
             applicationWindow().pageStack.layers.clear()
@@ -224,6 +225,21 @@ Kirigami.ScrollablePage {
                 wrapMode: Text.WordWrap
                 opacity: 0.8
                 text: "Plein écran paysage : le jeu tourne dans un sway imbriqué (pacman -S sway) dont la sortie est pivotée de 90° — seul le jeu est pivoté, pas l'écran du système. Il démarre en fenêtré, puis le launcher le passe en plein écran via KWin (qdbus6, paquet qt6-tools). Sans sway : bureau virtuel Wine, passé en plein écran de la même façon, sans rotation d'image."
+            }
+
+            QQC2.CheckBox {
+                id: zinkCheck
+
+                Layout.fillWidth: true
+                text: "OpenGL via Zink (Vulkan)"
+                onToggled: root.scheduleSave()
+            }
+
+            QQC2.Label {
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                opacity: 0.8
+                text: "Pour les jeux OpenGL : Mesa traduit OpenGL en Vulkan (MESA_LOADER_DRIVER_OVERRIDE=zink). Les jeux D3D passent déjà par DXVK/vkd3d (Vulkan) ; cette option permet d'avoir du Vulkan partout, notamment pour une future rotation de l'image."
             }
 
             QQC2.CheckBox {

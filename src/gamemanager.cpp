@@ -203,6 +203,7 @@ void GameManager::loadLibrary()
         game.mangohud = obj.value(QLatin1String("mangohud")).toBool();
         game.fullscreen = obj.value(QLatin1String("fullscreen")).toBool();
         game.gamepad = obj.value(QLatin1String("gamepad")).toBool();
+        game.zink = obj.value(QLatin1String("zink")).toBool();
         game.lastPlayed = static_cast<qint64>(obj.value(QLatin1String("lastPlayed")).toDouble());
         // Migration du cache v2 : les icônes automatiques extraites avant le
         // passage à la grande variante sont re-extraites au démarrage (une
@@ -278,6 +279,7 @@ void GameManager::saveLibrary()
         obj.insert(QLatin1String("mangohud"), game.mangohud);
         obj.insert(QLatin1String("fullscreen"), game.fullscreen);
         obj.insert(QLatin1String("gamepad"), game.gamepad);
+        obj.insert(QLatin1String("zink"), game.zink);
         obj.insert(QLatin1String("lastPlayed"), double(game.lastPlayed));
         games.append(obj);
     }
@@ -693,7 +695,7 @@ QString GameManager::extractExeIcon(const WineGame &game, QString *error)
 void GameManager::addGame(const QString &name, const QString &exePath, const QString &args,
                           const QString &prefixPath, const QString &wineBinary,
                           const QString &protonDir, const QString &iconPath, bool mangohud,
-                          bool fullscreen, bool gamepad)
+                          bool fullscreen, bool gamepad, bool zink)
 {
     WineGame game;
     game.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
@@ -707,6 +709,7 @@ void GameManager::addGame(const QString &name, const QString &exePath, const QSt
     game.mangohud = mangohud;
     game.fullscreen = fullscreen;
     game.gamepad = gamepad;
+    game.zink = zink;
     // Icône automatique : si l'utilisateur n'a pas choisi d'image, tenter
     // l'extraction depuis l'exécutable (sans effet hors .exe / hors icoutils).
     if (game.iconPath.isEmpty()) {
@@ -730,7 +733,7 @@ void GameManager::updateGame(int row, const QString &name, const QString &exePat
                              const QString &args, const QString &prefixPath,
                              const QString &wineBinary, const QString &protonDir,
                              const QString &iconPath, bool mangohud, bool fullscreen,
-                             bool gamepad)
+                             bool gamepad, bool zink)
 {
     if (row < 0 || row >= m_model->rowCount())
         return;
@@ -746,6 +749,7 @@ void GameManager::updateGame(int row, const QString &name, const QString &exePat
     game.mangohud = mangohud;
     game.fullscreen = fullscreen;
     game.gamepad = gamepad;
+    game.zink = zink;
     // Icône automatique : extraction si aucune icône n'est définie, ou
     // re-extraction quand l'exécutable a changé et que l'icône actuelle est
     // celle du cache automatique — une image choisie manuellement reste.
@@ -827,7 +831,17 @@ void GameManager::launchGame(int row)
     }
 
     auto *proc = new QProcess(this);
-    proc->setProcessEnvironment(runnerEnvironment(runner, prefix));
+    {
+        QProcessEnvironment gameEnv = runnerEnvironment(runner, prefix);
+        if (game.zink) {
+            // OpenGL (wined3d) traduit en Vulkan par Mesa Zink
+            gameEnv.insert(QStringLiteral("MESA_LOADER_DRIVER_OVERRIDE"), QStringLiteral("zink"));
+            gameEnv.insert(QStringLiteral("__GLX_VENDOR_LIBRARY_NAME"), QStringLiteral("mesa"));
+            gameEnv.insert(QStringLiteral("GALLIUM_DRIVER"), QStringLiteral("zink"));
+            appendLog(QStringLiteral("OpenGL via Zink activé."));
+        }
+        proc->setProcessEnvironment(gameEnv);
+    }
 
     QStringList payload{game.exePath};
     const QStringList extra = game.args.split(QLatin1Char(' '), Qt::SkipEmptyParts);
