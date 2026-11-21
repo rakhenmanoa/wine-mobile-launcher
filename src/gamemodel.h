@@ -21,6 +21,7 @@ struct WineGame {
     QString iconPath;
     bool mangohud = false;
     bool fullscreen = false;
+    bool gamepad = false; // manette à l'écran (manette virtuelle uinput)
     qint64 lastPlayed = 0;
 };
 
@@ -41,6 +42,7 @@ public:
         IconPathRole,
         MangohudRole,
         FullscreenRole,
+        GamepadRole,
         LastPlayedRole,
         RunningRole
     };

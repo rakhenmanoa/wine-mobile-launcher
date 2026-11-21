@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.21)
 
-project(wine-mobile-launcher VERSION 0.2.15 LANGUAGES CXX)
+project(wine-mobile-launcher VERSION 0.2.16 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -18,7 +18,11 @@ find_package(Qt6 6.8 REQUIRED COMPONENTS Core DBus Gui Qml Quick QuickControls2)
 # if(QT6_VERSION ...) qui ne se déclenchait jamais.
 qt_standard_project_setup(REQUIRES 6.8)
 
-qt_add_executable(wine-mobile-launcher src/main.cpp)
+# layer-shell-qt (optionnel) : pose l'overlay de la manette à l'écran au-dessus
+# des fenêtres plein écran. Sans lui, l'overlay est une simple fenêtre.
+find_package(LayerShellQt QUIET)
+
+qt_add_executable(wine-mobile-launcher src/main.cpp src/virtualgamepad.h src/virtualgamepad.cpp)
 
 qt_add_qml_module(wine-mobile-launcher
     URI org.rakhenmanoa.wineLauncher
@@ -30,6 +34,7 @@ qt_add_qml_module(wine-mobile-launcher
         qml/GameDetailPage.qml
         qml/EditGamePage.qml
         qml/SettingsPage.qml
+        qml/GamepadOverlay.qml
     SOURCES
         src/gamemodel.h
         src/gamemodel.cpp
@@ -58,6 +63,11 @@ target_link_libraries(wine-mobile-launcher PRIVATE
     Qt6::QuickControls2
 )
 
+if(LayerShellQt_FOUND)
+    target_link_libraries(wine-mobile-launcher PRIVATE LayerShellQt::Interface)
+    target_compile_definitions(wine-mobile-launcher PRIVATE HAVE_LAYERSHELLQT)
+endif()
+
 include(GNUInstallDirs)
 
 install(TARGETS wine-mobile-launcher
@@ -77,4 +87,12 @@ install(FILES assets/org.rakhenmanoa.wine-mobile-launcher.metainfo.xml
 install(FILES assets/icon.svg
     DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps
     RENAME org.rakhenmanoa.wine-mobile-launcher.svg
+)
+
+# Accès à /dev/uinput pour la manette à l'écran (manette virtuelle)
+install(FILES packaging/70-wml-uinput.rules
+    DESTINATION ${CMAKE_INSTALL_PREFIX}/lib/udev/rules.d
+)
+install(FILES packaging/wml-uinput.conf
+    DESTINATION ${CMAKE_INSTALL_PREFIX}/lib/modules-load.d
 )
