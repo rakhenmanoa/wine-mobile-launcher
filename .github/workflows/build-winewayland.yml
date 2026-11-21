@@ -23,7 +23,7 @@ jobs:
       - name: Dépendances
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential clang lld llvm autoconf bison flex gettext pkg-config git \
+          sudo apt-get install -y build-essential perl clang lld llvm autoconf bison flex gettext pkg-config git \
             libwayland-dev wayland-protocols libxkbcommon-dev libxkbregistry-dev libvulkan-dev \
             libegl-dev libgl-dev libfreetype-dev libfontconfig-dev libgnutls28-dev \
             libunwind-dev libdbus-1-dev libudev-dev libpulse-dev libsdl2-dev
@@ -49,6 +49,8 @@ jobs:
           [ -x configure ] || autoconf
           [ -f include/config.h.in ] || autoheader
           # Fichiers générés absents du dépôt Valve (Proton les régénère au build)
+          ./tools/make_requests
+          ./tools/make_specfiles
           if [ ! -f include/wine/vulkan.h ]; then
             (cd dlls/winevulkan && python3 make_vulkan -x vk.xml -X video.xml)
           fi
