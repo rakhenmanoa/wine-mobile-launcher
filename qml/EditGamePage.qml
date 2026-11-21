@@ -5,7 +5,7 @@ import QtQuick.Dialogs
 import org.kde.kirigami as Kirigami
 import org.rakhenmanoa.wineLauncher
 
-Kirigami.Page {
+Kirigami.ScrollablePage {
     id: root
 
     property int gameIndex: -1
@@ -68,8 +68,6 @@ Kirigami.Page {
     }
 
     ColumnLayout {
-        anchors.fill: parent
-        anchors.margins: Kirigami.Units.largeSpacing
         spacing: Kirigami.Units.largeSpacing
 
         Kirigami.InlineMessage {

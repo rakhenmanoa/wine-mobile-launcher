@@ -4,9 +4,10 @@ import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 import org.rakhenmanoa.wineLauncher
 
-Kirigami.Page {
+Kirigami.ScrollablePage {
     id: root
 
+    property bool logExpanded: false
     property int gameIndex: -1
     property var game: null
 
@@ -84,8 +85,6 @@ Kirigami.Page {
     }
 
     ColumnLayout {
-        anchors.fill: parent
-        anchors.margins: Kirigami.Units.largeSpacing
         spacing: Kirigami.Units.largeSpacing
 
         Kirigami.InlineMessage {
@@ -96,89 +95,111 @@ Kirigami.Page {
             visible: false
         }
 
-        Kirigami.Icon {
-            Layout.alignment: Qt.AlignHCenter
-            Layout.preferredWidth: Kirigami.Units.iconSizes.large
-            Layout.preferredHeight: Kirigami.Units.iconSizes.large
-            source: root.game !== null && root.game.icon !== ""
-                    ? root.game.icon : "applications-games"
+        // En-tête : icône, nom et état
+        ColumnLayout {
+            Layout.fillWidth: true
+            Layout.topMargin: Kirigami.Units.largeSpacing
+            spacing: Kirigami.Units.smallSpacing
+
+            GameIcon {
+                Layout.alignment: Qt.AlignHCenter
+                Layout.preferredWidth: Kirigami.Units.iconSizes.huge
+                Layout.preferredHeight: Kirigami.Units.iconSizes.huge
+                name: root.game !== null ? root.game.name : ""
+                source: root.game !== null ? root.game.icon : ""
+                running: root.game !== null && root.game.running
+            }
+            Kirigami.Heading {
+                Layout.fillWidth: true
+                horizontalAlignment: Text.AlignHCenter
+                level: 2
+                wrapMode: Text.Wrap
+                text: root.game !== null ? root.game.name : ""
+            }
+            QQC2.Label {
+                Layout.fillWidth: true
+                horizontalAlignment: Text.AlignHCenter
+                font.bold: root.game !== null && root.game.running
+                color: root.game !== null && root.game.running ? Kirigami.Theme.positiveTextColor
+                                                               : Kirigami.Theme.textColor
+                opacity: root.game !== null && root.game.running ? 1 : 0.7
+                text: root.game === null ? ""
+                    : root.game.running ? "● En cours d'exécution"
+                    : root.game.lastPlayed > 0
+                      ? "Dernier lancement : " + Qt.formatDateTime(new Date(root.game.lastPlayed), "dd/MM/yyyy HH:mm")
+                      : "Jamais lancé"
+            }
         }
 
-        Kirigami.FormLayout {
-            wideMode: false
+        // Un seul gros bouton : Jouer, ou Arrêter quand le jeu tourne
+        QQC2.Button {
+            Layout.fillWidth: true
+            Layout.preferredHeight: Kirigami.Units.gridUnit * 3
+            readonly property bool running: root.game !== null && root.game.running
+            text: running ? "Arrêter" : "Jouer"
+            icon.name: running ? "media-playback-stop" : "media-playback-start"
+            highlighted: !running
+            onClicked: running ? GameManager.stopGame(root.gameIndex) : GameManager.launchGame(root.gameIndex)
+        }
+
+        // Réglages du jeu
+        Kirigami.AbstractCard {
             Layout.fillWidth: true
 
-            QQC2.Label {
-                Kirigami.FormData.label: "Exécutable :"
-                Layout.fillWidth: true
-                text: root.game !== null ? root.game.exe : ""
-                elide: Text.ElideMiddle
-            }
-            QQC2.Label {
-                Kirigami.FormData.label: "Arguments :"
-                Layout.fillWidth: true
-                text: root.game !== null && root.game.args !== "" ? root.game.args : "—"
-                elide: Text.ElideMiddle
-            }
-            QQC2.Label {
-                Kirigami.FormData.label: "Préfixe Wine :"
-                Layout.fillWidth: true
-                text: root.game !== null && root.game.prefix !== "" ? root.game.prefix : "automatique"
-                elide: Text.ElideMiddle
-            }
-            QQC2.Label {
-                Kirigami.FormData.label: "Binaire Wine :"
-                Layout.fillWidth: true
-                text: root.game !== null && root.game.wine !== "" ? root.game.wine : "défaut"
-                elide: Text.ElideMiddle
-            }
-            QQC2.Label {
-                Kirigami.FormData.label: "GE-Proton :"
-                Layout.fillWidth: true
-                text: root.game !== null && root.game.proton !== "" ? root.game.proton : "défaut"
-                elide: Text.ElideMiddle
-            }
-            QQC2.Label {
-                Kirigami.FormData.label: "Dernier lancement :"
-                Layout.fillWidth: true
-                text: root.game !== null && root.game.lastPlayed > 0
-                      ? Qt.formatDateTime(new Date(root.game.lastPlayed), "dd/MM/yyyy HH:mm")
-                      : "jamais"
+            contentItem: Kirigami.FormLayout {
+                wideMode: false
+
+                QQC2.Label {
+                    Kirigami.FormData.label: "Exécutable :"
+                    Layout.fillWidth: true
+                    text: root.game !== null ? root.game.exe : ""
+                    elide: Text.ElideMiddle
+                }
+                QQC2.Label {
+                    Kirigami.FormData.label: "Arguments :"
+                    Layout.fillWidth: true
+                    text: root.game !== null && root.game.args !== "" ? root.game.args : "—"
+                    elide: Text.ElideMiddle
+                }
+                QQC2.Label {
+                    Kirigami.FormData.label: "Préfixe Wine :"
+                    Layout.fillWidth: true
+                    text: root.game !== null && root.game.prefix !== "" ? root.game.prefix : "automatique"
+                    elide: Text.ElideMiddle
+                }
+                QQC2.Label {
+                    Kirigami.FormData.label: "Binaire Wine :"
+                    Layout.fillWidth: true
+                    text: root.game !== null && root.game.wine !== "" ? root.game.wine : "défaut"
+                    elide: Text.ElideMiddle
+                }
+                QQC2.Label {
+                    Kirigami.FormData.label: "GE-Proton :"
+                    Layout.fillWidth: true
+                    text: root.game !== null && root.game.proton !== "" ? root.game.proton : "défaut"
+                    elide: Text.ElideMiddle
+                }
             }
         }
 
+        // Journal : replié par défaut pour laisser la place aux infos du jeu
         RowLayout {
             Layout.fillWidth: true
-            spacing: Kirigami.Units.largeSpacing
 
             QQC2.Button {
                 Layout.fillWidth: true
-                Layout.preferredHeight: Kirigami.Units.gridUnit * 2.5
-                text: "Jouer"
-                icon.name: "media-playback-start"
-                highlighted: true
-                enabled: root.game !== null && !root.game.running
-                onClicked: GameManager.launchGame(root.gameIndex)
-            }
-            QQC2.Button {
-                Layout.fillWidth: true
-                Layout.preferredHeight: Kirigami.Units.gridUnit * 2.5
-                text: "Arrêter"
-                icon.name: "media-playback-stop"
-                enabled: root.game !== null && root.game.running
-                onClicked: GameManager.stopGame(root.gameIndex)
-            }
-        }
-
-        RowLayout {
-            Layout.fillWidth: true
-
-            QQC2.Label {
-                Layout.fillWidth: true
-                text: "Journal Wine"
-                font.bold: true
+                flat: true
+                text: (root.logExpanded ? "▾ " : "▸ ") + "Journal Wine"
+                onClicked: root.logExpanded = !root.logExpanded
+                contentItem: QQC2.Label {
+                    text: parent.text
+                    font.bold: true
+                    horizontalAlignment: Text.AlignLeft
+                    verticalAlignment: Text.AlignVCenter
+                }
             }
             QQC2.ToolButton {
+                visible: root.logExpanded
                 icon.name: "edit-clear-all-symbolic"
                 onClicked: GameManager.clearLog()
             }
@@ -186,7 +207,8 @@ Kirigami.Page {
 
         QQC2.ScrollView {
             Layout.fillWidth: true
-            Layout.fillHeight: true
+            Layout.preferredHeight: Kirigami.Units.gridUnit * 14
+            visible: root.logExpanded
 
             QQC2.TextArea {
                 readOnly: true
