@@ -401,7 +401,7 @@ index 4226912..0922402 100644
      /* Keep surface feedback alive across WSI swapchain recreation. Mutter drops
       * its cached scanout tranche when the last feedback subscription is destroyed. */
 diff --git a/dlls/winewayland.drv/wayland_touch.c b/dlls/winewayland.drv/wayland_touch.c
-index e9a57f7..1813e23 100644
+index e9a57f7..911c435 100644
 --- a/dlls/winewayland.drv/wayland_touch.c
 +++ b/dlls/winewayland.drv/wayland_touch.c
 @@ -30,6 +30,7 @@
@@ -429,7 +429,7 @@ index e9a57f7..1813e23 100644
 +static BOOL touch_mouse_emulation_enabled(void)
 +{
 +    const char *e = getenv("WINE_WAYLAND_TOUCH_MOUSE");
-+    return !e || atoi(e) != 0;
++    return e && atoi(e) != 0;
 +}
 +
 +static void touch_send_mouse(HWND hwnd, LPARAM xy, DWORD flags)
