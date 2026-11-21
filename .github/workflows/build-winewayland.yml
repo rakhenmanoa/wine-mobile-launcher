@@ -1,0 +1,67 @@
+name: Build winewayland.so (rotation)
+
+# Compile uniquement le pilote Wayland de Wine (winewayland.so, natif aarch64)
+# avec le patch de rotation, à partir du Wine exact de GE-Proton11-12.
+on:
+  push:
+    branches: ['feature/**']
+    paths:
+      - 'winewayland/**'
+      - '.github/workflows/build-winewayland.yml'
+  workflow_dispatch:
+
+env:
+  WINE_REPO: https://github.com/ValveSoftware/wine
+  WINE_COMMIT: fda79a585939fb7512dc220a11249f9ffe825fcf
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Dépendances
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential bison flex gettext pkg-config git \
+            libwayland-dev wayland-protocols libxkbcommon-dev libvulkan-dev \
+            libegl-dev libgl-dev libfreetype-dev libfontconfig-dev libgnutls28-dev \
+            libunwind-dev libdbus-1-dev libudev-dev libpulse-dev libsdl2-dev
+
+      - name: Récupérer le Wine de GE-Proton
+        run: |
+          mkdir wine && cd wine
+          git init -q
+          git remote add origin "$WINE_REPO"
+          git fetch -q --depth=1 origin "$WINE_COMMIT"
+          git checkout -q FETCH_HEAD
+
+      - name: Appliquer les patchs
+        run: |
+          cd wine
+          for p in ../winewayland/*.patch; do
+            echo "== $p"; git apply --verbose "$p"
+          done
+
+      - name: Configurer
+        run: |
+          mkdir build && cd build
+          ../wine/configure --enable-win64 --without-mingw --disable-tests \
+            --with-wayland --without-x
+
+      - name: Compiler winewayland.so
+        run: |
+          cd build
+          make -j"$(nproc)" dlls/winewayland.drv/winewayland.so
+
+      - name: Récupérer le résultat
+        run: |
+          mkdir out
+          cp build/dlls/winewayland.drv/winewayland.so out/
+          cp winewayland/*.patch out/
+          (cd out && sha256sum winewayland.so > SHA256SUMS)
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: winewayland-rotate-aarch64
+          path: out/
