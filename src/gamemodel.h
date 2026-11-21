@@ -21,6 +21,8 @@ struct WineGame {
     QString iconPath;
     bool mangohud = false;
     bool fullscreen = false;
+    bool zink = false; // OpenGL (wined3d) via Zink : GL traduit en Vulkan
+    bool gamepad = false; // manette à l'écran (manette virtuelle uinput)
     qint64 lastPlayed = 0;
 };
 
@@ -41,6 +43,8 @@ public:
         IconPathRole,
         MangohudRole,
         FullscreenRole,
+        GamepadRole,
+        ZinkRole,
         LastPlayedRole,
         RunningRole
     };

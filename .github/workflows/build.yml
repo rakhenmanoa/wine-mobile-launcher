@@ -27,7 +27,7 @@ jobs:
     steps:
       - name: Préparer le conteneur
         run: |
-          pacman -Syu --noconfirm git cmake qt6-base qt6-declarative
+          pacman -Syu --noconfirm git cmake qt6-base qt6-declarative layer-shell-qt
 
       - uses: actions/checkout@v4
 

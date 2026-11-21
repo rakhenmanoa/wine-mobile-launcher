@@ -5,7 +5,7 @@ import QtQuick.Dialogs
 import org.kde.kirigami as Kirigami
 import org.rakhenmanoa.wineLauncher
 
-Kirigami.Page {
+Kirigami.ScrollablePage {
     id: root
 
     property int gameIndex: -1
@@ -13,13 +13,8 @@ Kirigami.Page {
 
     title: gameIndex >= 0 ? "Modifier le jeu" : "Nouveau jeu"
 
-    actions: [
-        Kirigami.Action {
-            text: "Enregistrer"
-            icon.name: "document-save-symbolic"
-            onTriggered: root.save()
-        }
-    ]
+    // Chargement des champs : pas de sauvegarde automatique tant que c'est en cours
+    property bool loaded: false
 
     Component.onCompleted: {
         if (gameIndex >= 0) {
@@ -33,28 +28,56 @@ Kirigami.Page {
             iconField.text = g.icon
             mangohudCheck.checked = g.mangohud
             fullscreenCheck.checked = g.fullscreen
+            gamepadCheck.checked = g.gamepad
+            zinkCheck.checked = g.zink
+        }
+        loaded = true
+    }
+
+    // Jeu existant : enregistrement automatique (légèrement différé pendant la frappe)
+    function scheduleSave() {
+        if (loaded && gameIndex >= 0)
+            saveTimer.restart()
+    }
+
+    // Quitter la page : on enregistre ce qui est en attente
+    Component.onDestruction: {
+        if (saveTimer.running) {
+            saveTimer.stop()
+            root.save(false)
         }
     }
 
-    function save() {
+    Timer {
+        id: saveTimer
+        interval: 700
+        onTriggered: root.save(false)
+    }
+
+    function save(closePage) {
         if (nameField.text.trim() === "" || exeField.text.trim() === "") {
-            formError.type = Kirigami.MessageType.Error
-            formError.text = "Le nom et le chemin de l'exécutable sont obligatoires."
-            formError.visible = true
+            // Édition auto : on attend que les champs obligatoires soient remplis
+            if (closePage) {
+                formError.type = Kirigami.MessageType.Error
+                formError.text = "Le nom et le chemin de l'exécutable sont obligatoires."
+                formError.visible = true
+            }
             return
         }
+        formError.visible = false
         if (root.gameIndex >= 0) {
             GameManager.updateGame(root.gameIndex, nameField.text, exeField.text,
                                    argsField.text, prefixField.text, wineField.text,
                                    protonField.text, iconField.text, mangohudCheck.checked,
-                                   fullscreenCheck.checked)
+                                   fullscreenCheck.checked, gamepadCheck.checked, zinkCheck.checked)
         } else {
             GameManager.addGame(nameField.text, exeField.text, argsField.text,
                                 prefixField.text, wineField.text, protonField.text,
                                 iconField.text, mangohudCheck.checked,
-                                fullscreenCheck.checked)
+                                fullscreenCheck.checked, gamepadCheck.checked, zinkCheck.checked)
         }
-        applicationWindow().pageStack.layers.clear()
+        if (closePage)
+            applicationWindow().pageStack.layers.clear()
     }
 
     Connections {
@@ -68,8 +91,6 @@ Kirigami.Page {
     }
 
     ColumnLayout {
-        anchors.fill: parent
-        anchors.margins: Kirigami.Units.largeSpacing
         spacing: Kirigami.Units.largeSpacing
 
         Kirigami.InlineMessage {
@@ -93,6 +114,7 @@ Kirigami.Page {
 
             QQC2.TextField {
                 id: nameField
+                onTextEdited: root.scheduleSave()
 
                 Kirigami.FormData.label: "Nom du jeu :"
                 Layout.fillWidth: true
@@ -106,6 +128,7 @@ Kirigami.Page {
 
                 QQC2.TextField {
                     id: exeField
+                    onTextEdited: root.scheduleSave()
 
                     Layout.fillWidth: true
                     placeholderText: "/chemin/vers/jeu.exe"
@@ -118,6 +141,7 @@ Kirigami.Page {
 
             QQC2.TextField {
                 id: argsField
+                onTextEdited: root.scheduleSave()
 
                 Kirigami.FormData.label: "Arguments :"
                 Layout.fillWidth: true
@@ -131,6 +155,7 @@ Kirigami.Page {
 
                 QQC2.TextField {
                     id: prefixField
+                    onTextEdited: root.scheduleSave()
 
                     Layout.fillWidth: true
                     placeholderText: "vide → préfixe automatique"
@@ -148,6 +173,7 @@ Kirigami.Page {
 
                 QQC2.TextField {
                     id: wineField
+                    onTextEdited: root.scheduleSave()
 
                     Layout.fillWidth: true
                     placeholderText: GameManager.defaultWineBinary !== ""
@@ -166,6 +192,7 @@ Kirigami.Page {
 
                 QQC2.TextField {
                     id: protonField
+                    onTextEdited: root.scheduleSave()
 
                     Layout.fillWidth: true
                     placeholderText: GameManager.defaultProtonDir !== ""
@@ -179,6 +206,7 @@ Kirigami.Page {
 
             QQC2.CheckBox {
                 id: mangohudCheck
+                onToggled: root.scheduleSave()
 
                 Layout.fillWidth: true
                 text: "Overlay MangoHud (FPS, CPU/GPU)"
@@ -186,6 +214,7 @@ Kirigami.Page {
 
             QQC2.CheckBox {
                 id: fullscreenCheck
+                onToggled: root.scheduleSave()
 
                 Layout.fillWidth: true
                 text: "Démarrer en plein écran (paysage)"
@@ -196,6 +225,36 @@ Kirigami.Page {
                 wrapMode: Text.WordWrap
                 opacity: 0.8
                 text: "Plein écran paysage : le jeu tourne dans un sway imbriqué (pacman -S sway) dont la sortie est pivotée de 90° — seul le jeu est pivoté, pas l'écran du système. Il démarre en fenêtré, puis le launcher le passe en plein écran via KWin (qdbus6, paquet qt6-tools). Sans sway : bureau virtuel Wine, passé en plein écran de la même façon, sans rotation d'image."
+            }
+
+            QQC2.CheckBox {
+                id: zinkCheck
+
+                Layout.fillWidth: true
+                text: "OpenGL via Zink (Vulkan)"
+                onToggled: root.scheduleSave()
+            }
+
+            QQC2.Label {
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                opacity: 0.8
+                text: "Pour les jeux OpenGL : Mesa traduit OpenGL en Vulkan (MESA_LOADER_DRIVER_OVERRIDE=zink). Les jeux D3D passent déjà par DXVK/vkd3d (Vulkan) ; cette option permet d'avoir du Vulkan partout, notamment pour une future rotation de l'image."
+            }
+
+            QQC2.CheckBox {
+                id: gamepadCheck
+
+                Layout.fillWidth: true
+                text: "Manette à l'écran"
+                onToggled: root.scheduleSave()
+            }
+
+            QQC2.Label {
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                opacity: 0.8
+                text: "Superpose une manette tactile (sticks, croix, ABXY, L/R/ZL/ZR, −/Home/+) au jeu et la présente à Wine comme une manette Xbox 360 (uinput). Nécessite l'accès à /dev/uinput (règle udev du paquet, puis redémarrage) ; layer-shell-qt est recommandé pour que la manette reste au-dessus du plein écran."
             }
 
             RowLayout {
@@ -210,6 +269,7 @@ Kirigami.Page {
                 }
                 QQC2.TextField {
                     id: iconField
+                    onTextEdited: root.scheduleSave()
 
                     Layout.fillWidth: true
                     placeholderText: "image du jeu (optionnel)"
@@ -219,6 +279,15 @@ Kirigami.Page {
                     onClicked: iconDialog.open()
                 }
             }
+        }
+
+        QQC2.Button {
+            Layout.fillWidth: true
+            visible: root.gameIndex < 0
+            highlighted: true
+            text: "Ajouter le jeu"
+            icon.name: "list-add-symbolic"
+            onClicked: root.save(true)
         }
 
         RowLayout {
@@ -253,28 +322,28 @@ Kirigami.Page {
         id: exeDialog
 
         nameFilters: ["Applications Windows (*.exe *.msi *.bat *.lnk)", "Tous les fichiers (*)"]
-        onAccepted: exeField.text = GameManager.urlToPath(selectedFile)
+        onAccepted: { exeField.text = GameManager.urlToPath(selectedFile); root.scheduleSave() }
     }
     FolderDialog {
         id: prefixDialog
 
-        onAccepted: prefixField.text = GameManager.urlToPath(selectedFolder)
+        onAccepted: { prefixField.text = GameManager.urlToPath(selectedFolder); root.scheduleSave() }
     }
     FileDialog {
         id: wineDialog
 
         nameFilters: ["Tous les fichiers (*)"]
-        onAccepted: wineField.text = GameManager.urlToPath(selectedFile)
+        onAccepted: { wineField.text = GameManager.urlToPath(selectedFile); root.scheduleSave() }
     }
     FolderDialog {
         id: protonDialog
 
-        onAccepted: protonField.text = GameManager.urlToPath(selectedFolder)
+        onAccepted: { protonField.text = GameManager.urlToPath(selectedFolder); root.scheduleSave() }
     }
     FileDialog {
         id: iconDialog
 
         nameFilters: ["Images (*.png *.jpg *.jpeg *.svg *.ico *.bmp)", "Tous les fichiers (*)"]
-        onAccepted: iconField.text = GameManager.urlToPath(selectedFile)
+        onAccepted: { iconField.text = GameManager.urlToPath(selectedFile); root.scheduleSave() }
     }
 }

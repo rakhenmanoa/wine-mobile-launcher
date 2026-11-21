@@ -1,5 +1,7 @@
 #include "gamemanager.h"
 
+#include <QCoreApplication>
+
 #include <cstdio>
 
 #include <QDBusConnection>
@@ -200,6 +202,8 @@ void GameManager::loadLibrary()
         game.iconPath = obj.value(QLatin1String("icon")).toString();
         game.mangohud = obj.value(QLatin1String("mangohud")).toBool();
         game.fullscreen = obj.value(QLatin1String("fullscreen")).toBool();
+        game.gamepad = obj.value(QLatin1String("gamepad")).toBool();
+        game.zink = obj.value(QLatin1String("zink")).toBool();
         game.lastPlayed = static_cast<qint64>(obj.value(QLatin1String("lastPlayed")).toDouble());
         // Migration du cache v2 : les icônes automatiques extraites avant le
         // passage à la grande variante sont re-extraites au démarrage (une
@@ -221,6 +225,43 @@ void GameManager::loadLibrary()
         saveLibrary();
 }
 
+// Suit les jeux lancés avec la manette à l'écran : le processus overlay tourne
+// tant qu'au moins un de ces jeux est en cours.
+void GameManager::setGamepadGame(const QString &gameId, bool active, int rotation)
+{
+    const bool wasActive = gamepadActive();
+    if (active)
+        m_gamepadGames.insert(gameId);
+    else
+        m_gamepadGames.remove(gameId);
+
+    if (active && !m_overlayProcess) {
+        m_overlayProcess = new QProcess(this);
+        m_overlayProcess->setProcessChannelMode(QProcess::MergedChannels);
+        connect(m_overlayProcess, &QProcess::finished, this,
+                [this](int code, QProcess::ExitStatus) {
+            const QString output = QString::fromLocal8Bit(m_overlayProcess->readAll()).trimmed();
+            if (code != 0 && !m_gamepadGames.isEmpty()) {
+                const QString msg = output.isEmpty()
+                    ? QStringLiteral("Manette à l'écran : le processus s'est arrêté (code %1).").arg(code)
+                    : output;
+                appendLog(msg);
+                Q_EMIT gamepadUnavailable(msg);
+            }
+            m_overlayProcess->deleteLater();
+            m_overlayProcess = nullptr;
+        });
+        m_overlayProcess->start(QCoreApplication::applicationFilePath(),
+                                {QStringLiteral("--gamepad-overlay"), QString::number(rotation)});
+    } else if (!active && m_gamepadGames.isEmpty() && m_overlayProcess) {
+        m_gamepadGames.clear();
+        m_overlayProcess->terminate();
+    }
+
+    if (wasActive != gamepadActive())
+        Q_EMIT gamepadActiveChanged();
+}
+
 void GameManager::saveLibrary()
 {
     QJsonArray games;
@@ -237,6 +278,8 @@ void GameManager::saveLibrary()
         obj.insert(QLatin1String("icon"), game.iconPath);
         obj.insert(QLatin1String("mangohud"), game.mangohud);
         obj.insert(QLatin1String("fullscreen"), game.fullscreen);
+        obj.insert(QLatin1String("gamepad"), game.gamepad);
+        obj.insert(QLatin1String("zink"), game.zink);
         obj.insert(QLatin1String("lastPlayed"), double(game.lastPlayed));
         games.append(obj);
     }
@@ -652,7 +695,7 @@ QString GameManager::extractExeIcon(const WineGame &game, QString *error)
 void GameManager::addGame(const QString &name, const QString &exePath, const QString &args,
                           const QString &prefixPath, const QString &wineBinary,
                           const QString &protonDir, const QString &iconPath, bool mangohud,
-                          bool fullscreen)
+                          bool fullscreen, bool gamepad, bool zink)
 {
     WineGame game;
     game.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
@@ -665,6 +708,8 @@ void GameManager::addGame(const QString &name, const QString &exePath, const QSt
     game.iconPath = iconPath.trimmed();
     game.mangohud = mangohud;
     game.fullscreen = fullscreen;
+    game.gamepad = gamepad;
+    game.zink = zink;
     // Icône automatique : si l'utilisateur n'a pas choisi d'image, tenter
     // l'extraction depuis l'exécutable (sans effet hors .exe / hors icoutils).
     if (game.iconPath.isEmpty()) {
@@ -687,7 +732,8 @@ void GameManager::addGame(const QString &name, const QString &exePath, const QSt
 void GameManager::updateGame(int row, const QString &name, const QString &exePath,
                              const QString &args, const QString &prefixPath,
                              const QString &wineBinary, const QString &protonDir,
-                             const QString &iconPath, bool mangohud, bool fullscreen)
+                             const QString &iconPath, bool mangohud, bool fullscreen,
+                             bool gamepad, bool zink)
 {
     if (row < 0 || row >= m_model->rowCount())
         return;
@@ -702,6 +748,8 @@ void GameManager::updateGame(int row, const QString &name, const QString &exePat
     game.iconPath = iconPath.trimmed();
     game.mangohud = mangohud;
     game.fullscreen = fullscreen;
+    game.gamepad = gamepad;
+    game.zink = zink;
     // Icône automatique : extraction si aucune icône n'est définie, ou
     // re-extraction quand l'exécutable a changé et que l'icône actuelle est
     // celle du cache automatique — une image choisie manuellement reste.
@@ -783,7 +831,17 @@ void GameManager::launchGame(int row)
     }
 
     auto *proc = new QProcess(this);
-    proc->setProcessEnvironment(runnerEnvironment(runner, prefix));
+    {
+        QProcessEnvironment gameEnv = runnerEnvironment(runner, prefix);
+        if (game.zink) {
+            // OpenGL (wined3d) traduit en Vulkan par Mesa Zink
+            gameEnv.insert(QStringLiteral("MESA_LOADER_DRIVER_OVERRIDE"), QStringLiteral("zink"));
+            gameEnv.insert(QStringLiteral("__GLX_VENDOR_LIBRARY_NAME"), QStringLiteral("mesa"));
+            gameEnv.insert(QStringLiteral("GALLIUM_DRIVER"), QStringLiteral("zink"));
+            appendLog(QStringLiteral("OpenGL via Zink activé."));
+        }
+        proc->setProcessEnvironment(gameEnv);
+    }
 
     QStringList payload{game.exePath};
     const QStringList extra = game.args.split(QLatin1Char(' '), Qt::SkipEmptyParts);
@@ -857,6 +915,18 @@ void GameManager::launchGame(int row)
     proc->setArguments(arguments);
     proc->setWorkingDirectory(exeInfo.absolutePath());
 
+    // Manette à l'écran : processus séparé (overlay layer-shell + manette uinput),
+    // démarré avant Wine qui énumère les manettes au lancement.
+    if (game.gamepad) {
+        int rotation = 0;
+        if (swayWrapped) {
+            const QString direction = qEnvironmentVariable("WML_ROTATION", QStringLiteral("right"));
+            rotation = direction == QLatin1String("left") ? 270
+                     : direction == QLatin1String("inverted") ? 180 : 90;
+        }
+        setGamepadGame(game.id, true, rotation);
+    }
+
     // Pas de mise en veille / extinction d'écran pendant le jeu.
     auto inhibit = std::make_shared<IdleInhibit>(
         acquireIdleInhibit(QStringLiteral("Jeu en cours : ") + game.name));
@@ -877,6 +947,7 @@ void GameManager::launchGame(int row)
                       + QStringLiteral(" » : binaire Wine/Proton invalide ?"));
             m_processes.remove(game.id);
             m_model->setRunning(game.id, false);
+            setGamepadGame(game.id, false);
         }
     });
     connect(proc, &QProcess::finished, this,
@@ -884,6 +955,7 @@ void GameManager::launchGame(int row)
         releaseIdleInhibit(*inhibit);
         m_processes.remove(game.id);
         m_model->setRunning(game.id, false);
+        setGamepadGame(game.id, false);
         // sway fermé (fenêtre fermée, crash) : Wine ne meurt pas avec lui,
         // on arrête donc explicitement le jeu (wineserver -k).
         if (swayWrapped)

@@ -111,3 +111,11 @@ Prototype v0.1 — le code suit les API stables Qt 6.5 / Kirigami 6 et n'a pas e
 ## Licence
 
 [MIT](LICENSE) — © 2026 rakhenmanoa
+
+## Manette à l'écran
+
+Option par jeu (« Manette à l'écran » dans les réglages du jeu) : une manette tactile (sticks, croix, ABXY, L/R/ZL/ZR, −/Home/+) est superposée au jeu et présentée à Wine comme une manette Xbox 360 virtuelle (uinput). Elle tourne dans un processus séparé (`wine-mobile-launcher --gamepad-overlay`), posé dans une couche layer-shell (paquet `layer-shell-qt`) pour rester au-dessus du plein écran, et pivoté comme le jeu en mode paysage.
+
+Prérequis : accès à `/dev/uinput` (règle udev `70-wml-uinput.rules` fournie ; recharger udev ou se reconnecter) et le module `uinput`.
+
+Les réglages d'un jeu et les paramètres généraux sont enregistrés automatiquement (plus de bouton « Enregistrer »).

@@ -1,0 +1,395 @@
+diff --git a/dlls/winewayland.drv/wayland_output.c b/dlls/winewayland.drv/wayland_output.c
+index f76881a..20d3d0b 100644
+--- a/dlls/winewayland.drv/wayland_output.c
++++ b/dlls/winewayland.drv/wayland_output.c
+@@ -211,6 +211,14 @@ static void output_handle_mode(void *data, struct wl_output *wl_output,
+     /* Windows apps don't expect a zero refresh rate, so use a default value. */
+     if (refresh == 0) refresh = default_refresh;
+ 
++    /* Rotation : Wine voit un écran paysage. */
++    if (wayland_get_rotation())
++    {
++        int tmp = width;
++        width = height;
++        height = tmp;
++    }
++
+     wayland_output_state_add_mode(&output->pending, width, height, refresh,
+                                   (flags & WL_OUTPUT_MODE_CURRENT));
+ 
+@@ -259,6 +267,12 @@ static void zxdg_output_v1_handle_logical_size(void *data,
+ {
+     struct wayland_output *output = data;
+     TRACE("logical_w=%d logical_h=%d\n", width, height);
++    if (wayland_get_rotation())
++    {
++        int tmp = width;
++        width = height;
++        height = tmp;
++    }
+     output->pending.logical_w = width;
+     output->pending.logical_h = height;
+     output->pending_flags |= WAYLAND_OUTPUT_CHANGED_LOGICAL_WH;
+diff --git a/dlls/winewayland.drv/wayland_pointer.c b/dlls/winewayland.drv/wayland_pointer.c
+index c4fdb33..50d011e 100644
+--- a/dlls/winewayland.drv/wayland_pointer.c
++++ b/dlls/winewayland.drv/wayland_pointer.c
+@@ -140,10 +140,10 @@ static void pointer_handle_motion_internal(wl_fixed_t sx, wl_fixed_t sy)
+ 
+     window_rect = &surface->window.rect;
+ 
+-    wayland_surface_coords_to_window(surface,
+-                                     wl_fixed_to_double(sx),
+-                                     wl_fixed_to_double(sy),
+-                                     (int *)&screen.x, (int *)&screen.y);
++    wayland_surface_point_to_window(surface,
++                                    wl_fixed_to_double(sx),
++                                    wl_fixed_to_double(sy),
++                                    (int *)&screen.x, (int *)&screen.y);
+     screen.x += window_rect->left;
+     screen.y += window_rect->top;
+     /* Sometimes, due to rounding, we may end up with pointer coordinates
+@@ -341,8 +341,7 @@ static void wayland_motion_delta_to_window(struct wayland_surface *surface,
+                                            double surface_x, double surface_y,
+                                            double *window_x, double *window_y)
+ {
+-    *window_x = surface_x * surface->window.scale;
+-    *window_y = surface_y * surface->window.scale;
++    wayland_surface_delta_to_window(surface, surface_x, surface_y, window_x, window_y);
+ }
+ 
+ static void relative_pointer_v1_relative_motion(void *private,
+@@ -826,12 +825,10 @@ static void wayland_surface_calc_confine(struct wayland_surface *surface,
+     OffsetRect(&window_clip,
+                -surface->window.rect.left,
+                -surface->window.rect.top);
+-    wayland_surface_coords_from_window(surface,
+-                                       window_clip.left, window_clip.top,
+-                                       (int *)&confine->left, (int *)&confine->top);
+-    wayland_surface_coords_from_window(surface,
+-                                       window_clip.right, window_clip.bottom,
+-                                       (int *)&confine->right, (int *)&confine->bottom);
++    wayland_surface_rect_from_window(surface,
++                                     surface->window.rect.right - surface->window.rect.left,
++                                     surface->window.rect.bottom - surface->window.rect.top,
++                                     &window_clip, confine);
+ }
+ 
+ /**********************************************************************
+@@ -1051,7 +1048,7 @@ BOOL WAYLAND_ClipCursor(const RECT *clip, BOOL reset)
+         wl_surface = surface->wl_surface;
+         if (clip) wayland_surface_calc_confine(surface, clip, &confine_rect);
+         covers_vscreen = wayland_surface_client_covers_vscreen(surface);
+-        wayland_surface_coords_from_window(surface,
++        wayland_surface_point_from_window(surface,
+                 cursor_pos.x - surface->window.rect.left,
+                 cursor_pos.y - surface->window.rect.top,
+                 &warp_x, &warp_y);
+diff --git a/dlls/winewayland.drv/wayland_surface.c b/dlls/winewayland.drv/wayland_surface.c
+index b0b5121..f64d202 100644
+--- a/dlls/winewayland.drv/wayland_surface.c
++++ b/dlls/winewayland.drv/wayland_surface.c
+@@ -176,6 +176,9 @@ struct wayland_surface *wayland_surface_create(HWND hwnd)
+ 
+     surface->window.scale = 1.0;
+ 
++    if (wayland_get_rotation())
++        wl_surface_set_buffer_transform(surface->wl_surface, wayland_get_buffer_transform());
++
+     return surface;
+ 
+ err:
+@@ -445,9 +448,22 @@ void wayland_surface_attach_shm(struct wayland_surface *surface,
+     win_width = max(1, min(win_width, shm_buffer->width));
+     win_height = max(1, min(win_height, shm_buffer->height));
+ 
+-    wp_viewport_set_source(surface->wp_viewport, 0, 0,
+-                           wl_fixed_from_int(win_width),
+-                           wl_fixed_from_int(win_height));
++    switch (wayland_get_rotation())
++    {
++    case 90:
++        wp_viewport_set_source(surface->wp_viewport, 0, wl_fixed_from_int(shm_buffer->width - win_width),
++                               wl_fixed_from_int(win_height), wl_fixed_from_int(win_width));
++        break;
++    case 270:
++        wp_viewport_set_source(surface->wp_viewport, wl_fixed_from_int(shm_buffer->height - win_height), 0,
++                               wl_fixed_from_int(win_height), wl_fixed_from_int(win_width));
++        break;
++    default:
++        wp_viewport_set_source(surface->wp_viewport, 0, 0,
++                               wl_fixed_from_int(win_width),
++                               wl_fixed_from_int(win_height));
++        break;
++    }
+ 
+     surface->content_width = win_width;
+     surface->content_height = win_height;
+@@ -528,10 +544,14 @@ static void wayland_surface_reconfigure_geometry(struct wayland_surface *surface
+     {
+         wayland_surface_get_rect_in_monitor(surface, &rect);
+ 
+-        wayland_surface_coords_from_window(surface, rect.left, rect.top,
+-                                           (int *)&rect.left, (int *)&rect.top);
+-        wayland_surface_coords_from_window(surface, rect.right, rect.bottom,
+-                                           (int *)&rect.right, (int *)&rect.bottom);
++        {
++            RECT surf_rect;
++            wayland_surface_rect_from_window(surface,
++                                             surface->window.rect.right - surface->window.rect.left,
++                                             surface->window.rect.bottom - surface->window.rect.top,
++                                             &rect, &surf_rect);
++            rect = surf_rect;
++        }
+ 
+         /* If the window rect in the monitor is smaller than required,
+          * fall back to an appropriately sized rect at the top-left. */
+@@ -600,9 +620,17 @@ static void wayland_surface_reconfigure_client(struct wayland_surface *surface,
+     client_width = client_rect->right - client_rect->left;
+     client_height = client_rect->bottom - client_rect->top;
+ 
+-    wayland_surface_coords_from_window(surface, client_x, client_y, &x, &y);
+-    wayland_surface_coords_from_window(surface, client_width, client_height,
+-                                       &width, &height);
++    {
++        RECT win_client, surf_client;
++        SetRect(&win_client, client_x, client_y, client_x + client_width, client_y + client_height);
++        wayland_surface_rect_from_window(surface, window->rect.right - window->rect.left,
++                                         window->rect.bottom - window->rect.top,
++                                         &win_client, &surf_client);
++        x = surf_client.left;
++        y = surf_client.top;
++        width = surf_client.right - surf_client.left;
++        height = surf_client.bottom - surf_client.top;
++    }
+ 
+     TRACE("hwnd=%p subsurface=%d,%d+%dx%d\n", surface->hwnd, x, y, width, height);
+ 
+@@ -683,7 +711,18 @@ static void wayland_surface_reconfigure_subsurface(struct wayland_surface *surfa
+         local_x = surface->window.rect.left - toplevel_surface->window.rect.left;
+         local_y = surface->window.rect.top - toplevel_surface->window.rect.top;
+ 
+-        wayland_surface_coords_from_window(surface, local_x, local_y, &x, &y);
++        {
++            RECT win_rect, surf_rect;
++            SetRect(&win_rect, local_x, local_y,
++                    local_x + surface->window.rect.right - surface->window.rect.left,
++                    local_y + surface->window.rect.bottom - surface->window.rect.top);
++            wayland_surface_rect_from_window(surface,
++                                             toplevel_surface->window.rect.right - toplevel_surface->window.rect.left,
++                                             toplevel_surface->window.rect.bottom - toplevel_surface->window.rect.top,
++                                             &win_rect, &surf_rect);
++            x = surf_rect.left;
++            y = surf_rect.top;
++        }
+ 
+         TRACE("hwnd=%p pos=%d,%d\n", surface->hwnd, x, y);
+ 
+@@ -712,8 +751,8 @@ BOOL wayland_surface_reconfigure(struct wayland_surface *surface)
+     win_width = surface->window.rect.right - surface->window.rect.left;
+     win_height = surface->window.rect.bottom - surface->window.rect.top;
+ 
+-    wayland_surface_coords_from_window(surface, win_width, win_height,
+-                                       &width, &height);
++    wayland_surface_size_from_window(surface, win_width, win_height,
++                                     &width, &height);
+ 
+     TRACE("hwnd=%p window=%dx%d,%#x processing=%dx%d,%#x current=%dx%d,%#x\n",
+           surface->hwnd, win_width, win_height, window->state,
+@@ -966,6 +1005,125 @@ failed:
+     return NULL;
+ }
+ 
++/**********************************************************************
++ *          Rotation (WINE_WAYLAND_ROTATE)
++ *
++ * Wine voit un écran paysage (largeur/hauteur échangées par rapport au
++ * compositeur). Les tampons sont rendus en paysage et le compositeur les fait
++ * pivoter (buffer_transform 90 ou 270), si bien que la surface est en portrait.
++ *
++ *  90  : (bx,by) -> (by, Bw-bx)   inverse : bx = Bw-sy, by = sx
++ *  270 : (bx,by) -> (Bh-by, bx)   inverse : bx = sy,    by = Bh-sx
++ */
++int wayland_get_rotation(void)
++{
++    static int rotation = -1;
++    if (rotation < 0)
++    {
++        const char *env = getenv("WINE_WAYLAND_ROTATE");
++        rotation = env ? atoi(env) : 0;
++        if (rotation != 90 && rotation != 270) rotation = 0;
++        if (rotation) TRACE("rotation=%d\n", rotation);
++    }
++    return rotation;
++}
++
++uint32_t wayland_get_buffer_transform(void)
++{
++    switch (wayland_get_rotation())
++    {
++    case 90: return WL_OUTPUT_TRANSFORM_90;
++    case 270: return WL_OUTPUT_TRANSFORM_270;
++    default: return WL_OUTPUT_TRANSFORM_NORMAL;
++    }
++}
++
++void wayland_surface_size_from_window(struct wayland_surface *surface, int window_w, int window_h,
++                                      int *surface_w, int *surface_h)
++{
++    int w = round(window_w / surface->window.scale);
++    int h = round(window_h / surface->window.scale);
++    if (wayland_get_rotation()) { *surface_w = h; *surface_h = w; }
++    else { *surface_w = w; *surface_h = h; }
++}
++
++void wayland_surface_size_to_window(struct wayland_surface *surface, double surface_w, double surface_h,
++                                    int *window_w, int *window_h)
++{
++    if (wayland_get_rotation()) { double t = surface_w; surface_w = surface_h; surface_h = t; }
++    *window_w = round(surface_w * surface->window.scale);
++    *window_h = round(surface_h * surface->window.scale);
++}
++
++/* Point de la fenêtre parente (parent_w x parent_h, coordonnées fenêtre) -> surface */
++static void rotate_point_from_window(struct wayland_surface *surface, int parent_w,
++                                     double x, double y, int parent_h, double *sx, double *sy)
++{
++    double scale = surface->window.scale;
++    double bw = parent_w / scale, bh = parent_h / scale;
++    x /= scale; y /= scale;
++    switch (wayland_get_rotation())
++    {
++    case 90: *sx = y; *sy = bw - x; break;
++    case 270: *sx = bh - y; *sy = x; break;
++    default: *sx = x; *sy = y; break;
++    }
++}
++
++void wayland_surface_rect_from_window(struct wayland_surface *surface, int parent_w, int parent_h,
++                                      const RECT *window_rect, RECT *surface_rect)
++{
++    double x0, y0, x1, y1;
++    rotate_point_from_window(surface, parent_w, window_rect->left, window_rect->top, parent_h, &x0, &y0);
++    rotate_point_from_window(surface, parent_w, window_rect->right, window_rect->bottom, parent_h, &x1, &y1);
++    surface_rect->left = round(min(x0, x1));
++    surface_rect->top = round(min(y0, y1));
++    surface_rect->right = round(max(x0, x1));
++    surface_rect->bottom = round(max(y0, y1));
++}
++
++void wayland_surface_point_from_window(struct wayland_surface *surface, int window_x, int window_y,
++                                       int *surface_x, int *surface_y)
++{
++    double sx, sy;
++    rotate_point_from_window(surface, surface->window.rect.right - surface->window.rect.left,
++                             window_x, window_y,
++                             surface->window.rect.bottom - surface->window.rect.top, &sx, &sy);
++    *surface_x = round(sx);
++    *surface_y = round(sy);
++}
++
++void wayland_surface_point_to_window(struct wayland_surface *surface, double surface_x, double surface_y,
++                                     int *window_x, int *window_y)
++{
++    double scale = surface->window.scale;
++    double bw = (surface->window.rect.right - surface->window.rect.left) / scale;
++    double bh = (surface->window.rect.bottom - surface->window.rect.top) / scale;
++    double x, y;
++    switch (wayland_get_rotation())
++    {
++    case 90: x = bw - surface_y; y = surface_x; break;
++    case 270: x = surface_y; y = bh - surface_x; break;
++    default: x = surface_x; y = surface_y; break;
++    }
++    *window_x = round(x * scale);
++    *window_y = round(y * scale);
++}
++
++void wayland_surface_delta_to_window(struct wayland_surface *surface, double surface_dx, double surface_dy,
++                                     double *window_dx, double *window_dy)
++{
++    double x, y;
++    switch (wayland_get_rotation())
++    {
++    case 90: x = -surface_dy; y = surface_dx; break;
++    case 270: x = surface_dy; y = -surface_dx; break;
++    default: x = surface_dx; y = surface_dy; break;
++    }
++    *window_dx = x * surface->window.scale;
++    *window_dy = y * surface->window.scale;
++}
++
+ /**********************************************************************
+  *          wayland_surface_coords_from_window
+  *
+@@ -1091,6 +1249,9 @@ struct wayland_client_surface *wayland_client_surface_create(HWND hwnd)
+         goto err;
+     }
+ 
++    if (wayland_get_rotation())
++        wl_surface_set_buffer_transform(client->wl_surface, wayland_get_buffer_transform());
++
+     return client;
+ 
+ err:
+diff --git a/dlls/winewayland.drv/waylanddrv.h b/dlls/winewayland.drv/waylanddrv.h
+index 9452d23..2531a2c 100644
+--- a/dlls/winewayland.drv/waylanddrv.h
++++ b/dlls/winewayland.drv/waylanddrv.h
+@@ -322,6 +322,22 @@ BOOL wayland_surface_reconfigure(struct wayland_surface *surface);
+ BOOL wayland_surface_config_is_compatible(struct wayland_surface_config *conf,
+                                           int width, int height,
+                                           enum wayland_surface_config_state state);
++/* Rotation du jeu (WINE_WAYLAND_ROTATE=90|270) : Wine voit un écran paysage,
++ * le compositeur fait pivoter les surfaces (wl_surface.set_buffer_transform). */
++int wayland_get_rotation(void);
++uint32_t wayland_get_buffer_transform(void);
++void wayland_surface_size_from_window(struct wayland_surface *surface, int window_w, int window_h,
++                                      int *surface_w, int *surface_h);
++void wayland_surface_size_to_window(struct wayland_surface *surface, double surface_w, double surface_h,
++                                    int *window_w, int *window_h);
++void wayland_surface_rect_from_window(struct wayland_surface *surface, int parent_w, int parent_h,
++                                      const RECT *window_rect, RECT *surface_rect);
++void wayland_surface_point_from_window(struct wayland_surface *surface, int window_x, int window_y,
++                                       int *surface_x, int *surface_y);
++void wayland_surface_point_to_window(struct wayland_surface *surface, double surface_x, double surface_y,
++                                     int *window_x, int *window_y);
++void wayland_surface_delta_to_window(struct wayland_surface *surface, double surface_dx, double surface_dy,
++                                     double *window_dx, double *window_dy);
+ void wayland_surface_coords_from_window(struct wayland_surface *surface,
+                                         int window_x, int window_y,
+                                         int *surface_x, int *surface_y);
+diff --git a/dlls/winewayland.drv/window.c b/dlls/winewayland.drv/window.c
+index 07e0858..0f33c52 100644
+--- a/dlls/winewayland.drv/window.c
++++ b/dlls/winewayland.drv/window.c
+@@ -554,12 +554,12 @@ static void wayland_configure_window(HWND hwnd)
+         flags |= SWP_FRAMECHANGED;
+     }
+ 
+-    wayland_surface_coords_from_window(surface,
+-                                       surface->window.rect.right -
+-                                           surface->window.rect.left,
+-                                       surface->window.rect.bottom -
+-                                           surface->window.rect.top,
+-                                       &window_surf_width, &window_surf_height);
++    wayland_surface_size_from_window(surface,
++                                     surface->window.rect.right -
++                                         surface->window.rect.left,
++                                     surface->window.rect.bottom -
++                                         surface->window.rect.top,
++                                     &window_surf_width, &window_surf_height);
+ 
+     /* If the window is already fullscreen and its size is compatible with what
+      * the compositor is requesting, don't force a resize, since some applications
+@@ -573,8 +573,8 @@ static void wayland_configure_window(HWND hwnd)
+         flags |= SWP_NOSIZE;
+     }
+ 
+-    wayland_surface_coords_to_window(surface, width, height,
+-                                     &window_width, &window_height);
++    wayland_surface_size_to_window(surface, width, height,
++                                   &window_width, &window_height);
+ 
+     wayland_win_data_release(data);
+ 

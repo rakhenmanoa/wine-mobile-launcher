@@ -4,6 +4,7 @@
 #include <QObject>
 #include <QProcess>
 #include <QProcessEnvironment>
+#include <QSet>
 #include <QSettings>
 #include <QString>
 #include <QUrl>
@@ -32,6 +33,8 @@ class GameManager : public QObject
     Q_PROPERTY(bool verboseTerminal READ verboseTerminal
                WRITE setVerboseTerminal NOTIFY verboseTerminalChanged)
     Q_PROPERTY(QString viewMode READ viewMode WRITE setViewMode NOTIFY viewModeChanged)
+    // Vrai tant qu'un jeu lancé avec la manette à l'écran tourne
+    Q_PROPERTY(bool gamepadActive READ gamepadActive NOTIFY gamepadActiveChanged)
 
 public:
     explicit GameManager(QObject *parent = nullptr);
@@ -47,16 +50,20 @@ public:
     bool verboseTerminal() const { return m_verboseTerminal; }
     void setVerboseTerminal(bool verbose);
     QString viewMode() const { return m_viewMode; }
+    bool gamepadActive() const { return !m_gamepadGames.isEmpty(); }
+
     void setViewMode(const QString &mode);
 
     Q_INVOKABLE void addGame(const QString &name, const QString &exePath,
                              const QString &args, const QString &prefixPath,
                              const QString &wineBinary, const QString &protonDir,
-                             const QString &iconPath, bool mangohud, bool fullscreen);
+                             const QString &iconPath, bool mangohud, bool fullscreen,
+                             bool gamepad = false, bool zink = false);
     Q_INVOKABLE void updateGame(int row, const QString &name, const QString &exePath,
                                 const QString &args, const QString &prefixPath,
                                 const QString &wineBinary, const QString &protonDir,
-                                const QString &iconPath, bool mangohud, bool fullscreen);
+                                const QString &iconPath, bool mangohud, bool fullscreen,
+                                bool gamepad = false, bool zink = false);
     Q_INVOKABLE void removeGame(int row);
     // Re-extrait l'icône de l'exécutable d'un jeu (remplace l'icône actuelle).
     Q_INVOKABLE void refreshIcon(int row);
@@ -83,6 +90,8 @@ signals:
     void viewModeChanged();
     void prefixCreationFinished(const QString &path, bool success, const QString &message);
     void gameLaunched(int row, bool success, const QString &message);
+    void gamepadActiveChanged();
+    void gamepadUnavailable(const QString &message);
 
 private:
     void loadLibrary();
@@ -112,6 +121,7 @@ private:
     // forcent le plein écran de sway imbriqué / du bureau virtuel Wine.
     void ensureFullscreenWindowRules(bool enable);
     void applyFullscreenScript();
+    void setGamepadGame(const QString &gameId, bool active, int rotation = 0);
     void appendLog(const QString &line);
     void writeLogFile(const QString &line);
     void appendProcessOutput(const QString &gameName, const QString &text);
@@ -134,4 +144,7 @@ private:
     QString m_defaultPrefixDir;
     bool m_verboseTerminal = false;
     QString m_viewMode;
+    QProcess *m_overlayProcess = nullptr; // « --gamepad-overlay » : manette virtuelle + overlay
+    QSet<QString> m_gamepadGames; // jeux en cours avec la manette à l'écran
+    int m_gamepadRotation = 0;
 };

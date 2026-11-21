@@ -5,25 +5,42 @@ import QtQuick.Dialogs
 import org.kde.kirigami as Kirigami
 import org.rakhenmanoa.wineLauncher
 
-Kirigami.Page {
+Kirigami.ScrollablePage {
     id: root
 
     title: "Paramètres"
+
+    property bool loaded: false
 
     Component.onCompleted: {
         wineField.text = GameManager.defaultWineBinary
         protonField.text = GameManager.defaultProtonDir
         prefixField.text = GameManager.defaultPrefixDir
         verboseCheck.checked = GameManager.verboseTerminal
+        loaded = true
+    }
+
+    // Enregistrement automatique (différé pendant la frappe)
+    function scheduleSave() {
+        if (loaded)
+            saveTimer.restart()
+    }
+    Component.onDestruction: {
+        if (saveTimer.running) {
+            saveTimer.stop()
+            root.save()
+        }
+    }
+    Timer {
+        id: saveTimer
+        interval: 700
+        onTriggered: root.save()
     }
 
     function save() {
         GameManager.defaultWineBinary = wineField.text.trim()
         GameManager.defaultProtonDir = protonField.text.trim()
         GameManager.defaultPrefixDir = prefixField.text.trim()
-        savedMsg.type = Kirigami.MessageType.Positive
-        savedMsg.text = "Paramètres enregistrés."
-        savedMsg.visible = true
     }
 
     function detect() {
@@ -38,26 +55,9 @@ Kirigami.Page {
         }
     }
 
-    actions: [
-        Kirigami.Action {
-            text: "Enregistrer"
-            icon.name: "document-save-symbolic"
-            onTriggered: root.save()
-        }
-    ]
-
     ColumnLayout {
-        anchors.fill: parent
-        anchors.margins: Kirigami.Units.largeSpacing
         spacing: Kirigami.Units.largeSpacing
 
-        Kirigami.InlineMessage {
-            id: savedMsg
-
-            Layout.fillWidth: true
-            showCloseButton: true
-            visible: false
-        }
         Kirigami.InlineMessage {
             id: wineMsg
 
@@ -77,6 +77,7 @@ Kirigami.Page {
 
                 QQC2.TextField {
                     id: wineField
+                    onTextEdited: root.scheduleSave()
 
                     Layout.fillWidth: true
                     placeholderText: "wine (système)"
@@ -94,6 +95,7 @@ Kirigami.Page {
 
                 QQC2.TextField {
                     id: protonField
+                    onTextEdited: root.scheduleSave()
 
                     Layout.fillWidth: true
                     placeholderText: "ex. ~/GE-Proton-aarch64 (prioritaire sur Wine)"
@@ -115,6 +117,7 @@ Kirigami.Page {
 
                 QQC2.TextField {
                     id: prefixField
+                    onTextEdited: root.scheduleSave()
 
                     Layout.fillWidth: true
                 }
@@ -164,16 +167,16 @@ Kirigami.Page {
         id: wineDialog
 
         nameFilters: ["Tous les fichiers (*)"]
-        onAccepted: wineField.text = GameManager.urlToPath(selectedFile)
+        onAccepted: { wineField.text = GameManager.urlToPath(selectedFile); root.scheduleSave() }
     }
     FolderDialog {
         id: protonDialog
 
-        onAccepted: protonField.text = GameManager.urlToPath(selectedFolder)
+        onAccepted: { protonField.text = GameManager.urlToPath(selectedFolder); root.scheduleSave() }
     }
     FolderDialog {
         id: prefixDialog
 
-        onAccepted: prefixField.text = GameManager.urlToPath(selectedFolder)
+        onAccepted: { prefixField.text = GameManager.urlToPath(selectedFolder); root.scheduleSave() }
     }
 }
