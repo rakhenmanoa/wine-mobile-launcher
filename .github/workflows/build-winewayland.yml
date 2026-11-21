@@ -48,6 +48,10 @@ jobs:
           cd wine
           [ -x configure ] || autoconf
           [ -f include/config.h.in ] || autoheader
+          # Fichiers générés absents du dépôt Valve (Proton les régénère au build)
+          if [ ! -f include/wine/vulkan.h ]; then
+            (cd dlls/winevulkan && python3 make_vulkan -x vk.xml -X video.xml)
+          fi
 
       - name: Configurer
         run: |
