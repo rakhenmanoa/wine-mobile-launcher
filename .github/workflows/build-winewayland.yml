@@ -24,7 +24,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential clang lld llvm autoconf bison flex gettext pkg-config git \
-            libwayland-dev wayland-protocols libxkbcommon-dev libvulkan-dev \
+            libwayland-dev wayland-protocols libxkbcommon-dev libxkbregistry-dev libvulkan-dev \
             libegl-dev libgl-dev libfreetype-dev libfontconfig-dev libgnutls28-dev \
             libunwind-dev libdbus-1-dev libudev-dev libpulse-dev libsdl2-dev
 
