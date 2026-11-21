@@ -25,7 +25,7 @@ index 203a415..309e36b 100644
      output->pending.logical_h = height;
      output->pending.flags |= WAYLAND_OUTPUT_LOGICAL_WH;
 diff --git a/dlls/winewayland.drv/wayland_pointer.c b/dlls/winewayland.drv/wayland_pointer.c
-index a16fc4f..e1afed8 100644
+index a16fc4f..7deaf1a 100644
 --- a/dlls/winewayland.drv/wayland_pointer.c
 +++ b/dlls/winewayland.drv/wayland_pointer.c
 @@ -491,8 +491,7 @@ static void wayland_motion_delta_to_window(struct wayland_surface *surface,
@@ -38,6 +38,39 @@ index a16fc4f..e1afed8 100644
  }
  
  /* Some compositors seem to have broken rawinput so allow users to disable/adjust sensitivity */
+@@ -1158,17 +1157,23 @@ BOOL WAYLAND_SetCursorPos(INT x, INT y)
+         if (wl_surface)
+         {
+             pthread_mutex_lock(&pointer->mutex);
+-            wp_pointer_warp_v1_warp_pointer(process_wayland.wp_pointer_warp_v1,
+-                                            wl_surface, pointer->wl_pointer,
+-                                            wl_fixed_from_int(surface_pt.x),
+-                                            wl_fixed_from_int(surface_pt.y),
+-                                            pointer->enter_serial);
+-            pthread_mutex_unlock(&pointer->mutex);
++            /* Sur un appareil sans souris (tactile seul) il n'y a pas de wl_pointer :
++             * le protocole interdit alors un argument NULL (erreur de marshalling). */
++            if (pointer->wl_pointer)
++            {
++                wp_pointer_warp_v1_warp_pointer(process_wayland.wp_pointer_warp_v1,
++                                                wl_surface, pointer->wl_pointer,
++                                                wl_fixed_from_int(surface_pt.x),
++                                                wl_fixed_from_int(surface_pt.y),
++                                                pointer->enter_serial);
++                pthread_mutex_unlock(&pointer->mutex);
+ 
+-            TRACE("warping to %d,%d\n", x, y);
+-            wl_display_flush(process_wayland.wl_display);
++                TRACE("warping to %d,%d\n", x, y);
++                wl_display_flush(process_wayland.wl_display);
+ 
+-            return TRUE;
++                return TRUE;
++            }
++            pthread_mutex_unlock(&pointer->mutex);
+         }
+     }
+ 
 diff --git a/dlls/winewayland.drv/wayland_surface.c b/dlls/winewayland.drv/wayland_surface.c
 index 4226912..0922402 100644
 --- a/dlls/winewayland.drv/wayland_surface.c
