@@ -112,9 +112,25 @@ Prototype v0.1 — le code suit les API stables Qt 6.5 / Kirigami 6 et n'a pas e
 
 [MIT](LICENSE) — © 2026 rakhenmanoa
 
+## Affichage et graphisme (onglet de la fiche du jeu)
+
+Réglages par jeu, enregistrés automatiquement :
+
+- **Démarrer en plein écran** et **Wayland** : avec Wayland, le jeu tourne avec `PROTON_ENABLE_WAYLAND=1`, sans sway ; en plein écran l'image est pivotée par Wine (`WINE_WAYLAND_ROTATE`, sens réglable avec `WML_ROTATION=left|inverted`) et garde ses proportions (`WINE_WAYLAND_KEEP_ASPECT`).
+- **Tactile émulé en souris** : le premier doigt déplace le curseur et clique (`WINE_WAYLAND_TOUCH_MOUSE`).
+- **Résolution maximale vue par le jeu** : aucune limite, 1080p, 900p, 720p, 576p, 480p ou 407p (taille logique de Plasma) ; plafonne la résolution d'écran annoncée à Wine (`WINE_WAYLAND_MAX_HEIGHT`) pour que les jeux qui s'adaptent à l'écran rendent plus petit.
+- **Agrandissement FSR** : quand le jeu rend plus petit que l'écran, l'image est agrandie en FSR 1 plutôt qu'étirée (`WINE_FULLSCREEN_FORCE_FSHACK` + `WINE_FULLSCREEN_FSR`).
+- **OpenGL via Zink**, **Manette à l'écran** (voir plus bas ; seulement en plein écran).
+
+Les options Wayland, tactile, résolution maximale et FSR demandent les fichiers Wine modifiés, à copier à la main dans GE-Proton aarch64 : [`winewayland.so`](winewayland/README.md) (rotation, tactile, plafond de résolution) et [`win32u.so`](win32u/README.md) (proportions, FSR). Ils sont compilés par les workflows GitHub Actions `build-winewayland.yml` et `build-win32u.yml` (déclenchés sur les branches `feature/**` ou à la demande) ; les artefacts se téléchargent dans la page du run.
+
 ## Manette à l'écran
 
 Option par jeu (« Manette à l'écran » dans les réglages du jeu) : une manette tactile (sticks, croix, ABXY, L/R/ZL/ZR, −/Home/+) est superposée au jeu et présentée à Wine comme une manette Xbox 360 virtuelle (uinput). Elle tourne dans un processus séparé (`wine-mobile-launcher --gamepad-overlay`), posé dans une couche layer-shell (paquet `layer-shell-qt`) pour rester au-dessus du plein écran, et pivoté comme le jeu en mode paysage.
+
+Le bouton ⌂ ramène à l'accueil de Plasma (le jeu continue) ; A et B suivent la disposition Nintendo (A à droite, B en bas).
+
+**Disposition personnalisable** : le bouton « Modifier la disposition des boutons… » (onglet Affichage et graphisme) ouvre l'éditeur par-dessus le lanceur ; la case « Éditer la disposition au prochain lancement » l'ouvre dans le jeu. On glisse chaque contrôle (croix, sticks, A, B, X, Y, ZL, L, ZR, R, −, ⌂, +), on le sélectionne puis **− / +** change sa taille (0,5× à 2×), **Réinitialiser** revient à la disposition par défaut. Elle est commune à tous les jeux et enregistrée dans `~/.config/wine-mobile-launcher/gamepad-layout.json`.
 
 Prérequis : accès à `/dev/uinput` (règle udev `70-wml-uinput.rules` fournie ; recharger udev ou se reconnecter) et le module `uinput`.
 
