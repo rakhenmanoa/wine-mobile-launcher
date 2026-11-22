@@ -25,6 +25,7 @@ struct WineGame {
     bool gamepad = false; // manette à l'écran (manette virtuelle uinput)
     bool wayland = false; // pilote Wayland de Wine (rotation sans sway)
     bool touchMouse = false; // tactile émulé en souris (pilote Wayland)
+    bool fsr = false;        // agrandissement FSR 1 par win32u (nécessite le pilote Wayland)
     qint64 lastPlayed = 0;
 };
 
@@ -49,6 +50,7 @@ public:
         ZinkRole,
         WaylandRole,
         TouchMouseRole,
+        FsrRole,
         LastPlayedRole,
         RunningRole
     };
