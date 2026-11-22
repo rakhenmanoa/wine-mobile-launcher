@@ -53,8 +53,11 @@ Window {
             const c = content.children[i]
             if (!c.touchZone)
                 continue
-            const r = c.mapRectToItem(null, 0, 0, c.width, c.height)
-            rects.push({x: r.x, y: r.y, w: r.width, h: r.height})
+            // deux coins opposés dans le repère de la fenêtre (le contenu peut être pivoté)
+            const p0 = c.mapToItem(null, 0, 0)
+            const p1 = c.mapToItem(null, c.width, c.height)
+            rects.push({x: Math.min(p0.x, p1.x), y: Math.min(p0.y, p1.y),
+                        w: Math.abs(p1.x - p0.x), h: Math.abs(p1.y - p0.y)})
         }
         pad.setInputMask(win, rects)
     }
