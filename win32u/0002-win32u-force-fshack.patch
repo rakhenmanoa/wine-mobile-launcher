@@ -1,0 +1,41 @@
+--- a/dlls/win32u/vulkan.c
++++ b/dlls/win32u/vulkan.c
+@@ -3820,10 +3820,26 @@
+     return vk_device->p_vkSetLatencySleepModeNV(vk_device->host.device, vk_swapchain->obj.host.swapchain, &sleep_mode_info_host);
+ }
+ 
++/* WINE_FULLSCREEN_FORCE_FSHACK=1 : use the fullscreen hack path (and so the FSR upscaler with
++ * WINE_FULLSCREEN_FSR=1) even when the game did not change the display mode, the swapchain being
++ * scaled to the window size by the compute shaders. */
++static BOOL force_fshack(void)
++{
++    static int force = -1;
++    if (force < 0)
++    {
++        const char *e = getenv( "WINE_FULLSCREEN_FORCE_FSHACK" );
++        force = e && strcmp( e, "0" );
++    }
++    return force;
++}
++
+ static BOOL surface_get_fshack_dpi( struct surface *surface )
+ {
+     UINT dpi = NtUserGetDpiForWindow( surface->hwnd ), raw = NtUserGetWinMonitorDpi( surface->hwnd, MDT_RAW_DPI );
+-    return fshack_enabled && dpi != raw ? raw : 0;
++    if (!fshack_enabled) return 0;
++    if (dpi != raw) return raw;
++    return force_fshack() ? (raw ? raw : 96) : 0;
+ }
+ 
+ /* Cross-process producer helpers. */
+@@ -5263,7 +5279,9 @@
+      * itself), so that it can keep the aspect ratio when it scales the surface (WINE_WAYLAND_KEEP_ASPECT). */
+     {
+         static const WCHAR extent_prop[] = {'_','_','w','i','n','e','_','v','k','_','e','x','t','e','n','t',0};
+-        ULONG_PTR v = swapchain->fshack_dpi ? 0 :
++        /* with the forced hack the driver still needs the size (it shrinks the surface to the fitted
++         * rectangle and the shaders then scale the game image to it) */
++        ULONG_PTR v = (swapchain->fshack_dpi && !force_fshack()) ? 0 :
+             ((ULONG_PTR)create_info->imageExtent.width | ((ULONG_PTR)create_info->imageExtent.height << 16));
+         FIXME( "swapchain: fshack_dpi=%u owner=%d image=%ux%u min=%ux%u\n", (unsigned)swapchain->fshack_dpi,
+                presentation_owner, (unsigned)create_info->imageExtent.width, (unsigned)create_info->imageExtent.height,
