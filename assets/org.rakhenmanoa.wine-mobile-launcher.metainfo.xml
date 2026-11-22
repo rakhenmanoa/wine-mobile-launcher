@@ -15,6 +15,11 @@
     <binary>wine-mobile-launcher</binary>
   </provides>
   <releases>
+    <release version="0.2.20" date="2026-11-22">
+      <description>
+        <p>Onglet « Affichage et graphisme » : pilote Wayland de Wine (rotation sans sway, proportions conservées, tactile et tactile émulé en souris, plafond de résolution d'écran), agrandissement FSR 1, Zink. Manette à l'écran liée au plein écran, disposition personnalisable (déplacement et taille de chaque bouton), bouton ⌂ vers l'accueil de Plasma, A/B corrigés.</p>
+      </description>
+    </release>
     <release version="0.2.11" date="2026-11-20">
       <description>
         <p>Plein écran paysage fonctionnel : le jeu tourne dans un sway imbriqué dont la sortie est pivotée de 90° (seul le jeu est pivoté), démarre en fenêtré puis la fenêtre est passée en plein écran par un script KWin chargé via qdbus6 (plus de règle de fenêtre persistante) ; arrêt du jeu à la fermeture de la fenêtre sway ; versions publiées par tag vX.Y.Z-N, CI aarch64 sur runner ARM natif.</p>

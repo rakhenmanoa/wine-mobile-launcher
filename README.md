@@ -4,12 +4,15 @@
 
 Un lanceur d'applications Windows (Wine) léger, dans l'esprit de **Lutris**, conçu pour **Plasma Mobile** et les écrans tactiles. Interface **Qt 6 / QML / Kirigami**.
 
-## Fonctionnalités (v0.1)
+## Fonctionnalités
 
 - **Bibliothèque de jeux** : liste de vos applications Windows (.exe, .msi, .bat, .lnk), avec icône extraite automatiquement de l'exécutable (via `icoutils`, la plus grande variante du .ico jusqu'à 256×256, cache PNG par jeu ; ré-extraction possible depuis la fiche du jeu) ou image choisie manuellement, exécutable et préfixe
 - **Affichage** : liste détaillée, grille d'icônes moyennes ou grandes icônes (préférence mémorisée) ; dans les grilles, appui sur une icône = lancement du jeu, appui long = fiche du jeu, sous-icône crayon sur chaque tuile = modifier le jeu
 - **Préfixes Wine isolés** : un « C: » virtuel par jeu (comme Lutris) ; création en un clic via `wineboot -i`, ou préfixe automatique nommé d'après le jeu
 - **Lancement / arrêt** : la mise en veille et l'extinction de l'écran sont suspendues tant qu'un jeu tourne (inhibition D-Bus KDE) ; lance le jeu avec `WINEPREFIX` correctement défini ; bouton Arrêter (envoie `wineserver -k` au préfixe du jeu) ; option par jeu « Démarrer en plein écran (paysage) » — le jeu tourne dans un `sway` imbriqué dont la sortie est pivotée de 90° (seul le jeu est pivoté, pas l'écran du système ; sens réglable avec `WML_ROTATION=right|left|inverted`), le jeu démarre en fenêtré, puis la fenêtre de sway est passée en vrai plein écran (sans barre de navigation) par un petit script KWin chargé en D-Bus avec `qdbus6` (paquet `qt6-tools`), sans règle de fenêtre persistante ; sans `sway`, bureau virtuel Wine en plein écran sans rotation d'image.
+- **Plein écran sans sway (Wayland)** : avec le pilote Wayland de Wine (option par jeu), l'image est pivotée par Wine lui-même, garde ses proportions quand le jeu change de résolution, avec tactile (et option « tactile émulé en souris »), plafond de résolution d'écran et agrandissement FSR 1 — voir « Affichage et graphisme » plus bas
+- **Manette à l'écran** : manette tactile virtuelle (uinput) à disposition personnalisable, bouton ⌂ vers l'accueil de Plasma
+- **Réglages enregistrés automatiquement** (fiche du jeu et paramètres)
 - **Runner configurable** : Wine système (`wine`), binaire personnalisé (Wine-GE…) ou **GE-Proton / Proton** (y compris les builds **aarch64**), avec détection automatique
 - **Journal intégré** : sortie stdout/stderr de Wine consultable depuis la page du jeu
 - **Journal verbose** : si l'option est cochée, le journal est aussi recopié dans le terminal et enregistré dans `~/.local/share/wine-mobile-launcher/wine-mobile-launcher.log` (rotation à 5 Mo)
@@ -83,14 +86,19 @@ Dans **Paramètres → Dossier GE-Proton par défaut** (ou, par jeu, dans le cha
 ## Architecture du code
 
 ```
-src/main.cpp            point d'entrée Qt
-src/gamemodel.{h,cpp}   modèle de bibliothèque (QAbstractListModel)
-src/gamemanager.{h,cpp} logique : JSON, QProcess/wine, wineserver, préfixes
-qml/                    UI Kirigami (bibliothèque, fiche jeu, édition, paramètres)
-assets/                 icône SVG, .desktop, metainfo (AppStream)
+src/main.cpp               point d'entrée Qt (et mode --gamepad-overlay)
+src/gamemodel.{h,cpp}      modèle de bibliothèque (QAbstractListModel)
+src/gamemanager.{h,cpp}    logique : JSON, QProcess/wine/proton, wineserver, préfixes, environnement des jeux
+src/virtualgamepad.{h,cpp} manette uinput, overlay layer-shell, disposition (JSON)
+qml/                       UI Kirigami (bibliothèque, fiche jeu, édition, paramètres, GamepadOverlay)
+winewayland/               patch du pilote Wayland de Wine (rotation, tactile, plafond de résolution)
+win32u/                    patchs win32u (proportions, FSR forcé)
+.github/workflows/         build du paquet, de winewayland.so et de win32u.so
+packaging/arch/            PKGBUILD, règle udev uinput
+assets/                    icône SVG, .desktop, metainfo (AppStream)
 ```
 
-## Limitations connues (v0.1)
+## Limitations connues
 
 - Les jeux lancés sont suivis par le launcher : si celui-ci est fermé, les processus enfants sont arrêtés (limite QProcess ; une version détachée est prévue)
 - Pas encore de téléchargement automatique des runners (Wine-GE, GE-Proton à extraire manuellement), ni de winetricks graphique
@@ -106,7 +114,7 @@ assets/                 icône SVG, .desktop, metainfo (AppStream)
 
 ## Statut
 
-Prototype v0.1 — le code suit les API stables Qt 6.5 / Kirigami 6 et n'a pas encore été testé sur du matériel Plasma Mobile réel. Retours de compilation et rapports de bug bienvenus.
+Version 0.2.x, testée sur un Xiaomi 12T Pro (ALARM, Plasma Mobile, GE-Proton aarch64). Les options Wayland, tactile, résolution maximale et FSR demandent les fichiers Wine modifiés (`winewayland.so`, `win32u.so`), à copier à la main dans GE-Proton ; le reste fonctionne avec un Proton standard. Retours de compilation et rapports de bug bienvenus.
 
 ## Licence
 
