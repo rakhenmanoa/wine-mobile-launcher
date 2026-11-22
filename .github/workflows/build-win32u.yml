@@ -1,0 +1,101 @@
+name: Build win32u.so (GE-Proton complet)
+
+# Reproduit la partie « wine » de patches/protonprep-valve-staging.sh de GE-Proton
+# (Valve wine + Wine-Staging + patchs GE), puis compile uniquement win32u.so
+# (natif aarch64) avec nos patchs win32u/*.patch.
+on:
+  push:
+    branches: ['feature/**']
+    paths:
+      - 'win32u/**'
+      - '.github/workflows/build-win32u.yml'
+  workflow_dispatch:
+
+env:
+  GE_TAG: GE-Proton11-12
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Dépendances
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential perl clang lld llvm autoconf bison flex gettext pkg-config git python3 \
+            libwayland-dev wayland-protocols libxkbcommon-dev libxkbregistry-dev libvulkan-dev \
+            libegl-dev libgl-dev libfreetype-dev libfontconfig-dev libgnutls28-dev \
+            libunwind-dev libdbus-1-dev libudev-dev libpulse-dev libsdl2-dev
+
+      - name: Récupérer GE-Proton (patchs) et les sous-modules wine*
+        run: |
+          mkdir r && cd r
+          git init -q gep && cd gep
+          git remote add origin https://github.com/GloriousEggroll/proton-ge-custom
+          git fetch -q --depth=1 --filter=blob:none origin tag "$GE_TAG"
+          git checkout -q FETCH_HEAD
+          git sparse-checkout init --cone
+          git sparse-checkout set patches wineopenxr
+          git ls-tree FETCH_HEAD wine wine-staging wineopenxr
+          get() {  # nom url sha
+            mkdir "../$1" && cd "../$1"
+            git init -q
+            git remote add origin "$2"
+            git fetch -q --filter=blob:none origin "$3"
+            git checkout -q FETCH_HEAD
+            cd ../gep
+          }
+          sha() { git ls-tree FETCH_HEAD "$1" | awk '{print $3}'; }
+          get wine https://github.com/ValveSoftware/wine "$(sha wine)"
+          get wine-staging https://github.com/wine-staging/wine-staging "$(sha wine-staging)"
+          cd .. && ln -s gep/patches patches && ln -s gep/wineopenxr wineopenxr
+          ls
+
+      - name: Patchs GE-Proton (section wine du script de préparation)
+        run: |
+          cd r
+          { echo '#!/bin/bash'; sed -n 3,14p gep/patches/protonprep-valve-staging.sh; sed -n 124,686p gep/patches/protonprep-valve-staging.sh; } > prep-wine.sh
+          grep -n "wineopenxr" prep-wine.sh | head -3
+          bash prep-wine.sh 2>&1 | tee prep.log | tail -40
+          echo "échecs:"; grep -c "FAILED\|Reversed\|rejects" prep.log || true
+
+      - name: Nos patchs win32u
+        run: |
+          cd r/wine
+          for f in "$GITHUB_WORKSPACE"/win32u/*.patch; do
+            [ -e "$f" ] || continue
+            echo "== $f"; patch -Np1 --no-backup-if-mismatch < "$f"
+          done
+
+      - name: Générer et configurer
+        run: |
+          cd r/wine
+          [ -f include/config.h.in ] || autoheader
+          ./tools/make_requests
+          ./tools/make_specfiles
+          if [ ! -f include/wine/vulkan.h ]; then
+            (cd dlls/winevulkan && python3 make_vulkan -x vk.xml -X video.xml)
+          fi
+          printf '%s\n' '#ifndef XKB_VMOD_NAME_SCROLL' '#define XKB_VMOD_NAME_SCROLL "ScrollLock"' '#endif' > "$GITHUB_WORKSPACE/xkbcompat.h"
+          mkdir ../build && cd ../build
+          CFLAGS="-g -O2 -include $GITHUB_WORKSPACE/xkbcompat.h" ../wine/configure --enable-win64 --disable-tests \
+            --with-wayland --without-x
+
+      - name: Compiler win32u.so
+        run: |
+          cd r/build
+          make -j"$(nproc)" dlls/win32u/win32u.so
+
+      - name: Résultat et symboles
+        run: |
+          mkdir out
+          cp r/build/dlls/win32u/win32u.so out/
+          cp win32u/*.patch out/ 2>/dev/null || true
+          (cd out && sha256sum win32u.so > SHA256SUMS)
+          echo "=====BEGIN SYMS"; nm out/win32u.so | awk '$2 ~ /[tT]/ {print $3}' | sort -u; echo "=====END SYMS"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: win32u-aarch64
+          path: out/

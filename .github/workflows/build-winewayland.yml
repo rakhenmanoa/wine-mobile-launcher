@@ -13,6 +13,7 @@ on:
 env:
   WINE_REPO: https://github.com/ValveSoftware/wine
   WINE_COMMIT: fda79a585939fb7512dc220a11249f9ffe825fcf
+  GE_TAG: GE-Proton11-12
 
 jobs:
   build:
@@ -36,12 +37,39 @@ jobs:
           git fetch -q --depth=1 origin "$WINE_COMMIT"
           git checkout -q FETCH_HEAD
 
-      - name: Appliquer les patchs
+      - name: Patchs GE-Proton (wine-wayland, em-fixups, wineland)
+        run: |
+          # Même séquence que patches/protonprep-valve-staging.sh de GE-Proton :
+          # le pilote winewayland de GE est le Wine de Valve + ces patchs.
+          mkdir gep && cd gep
+          git init -q
+          git remote add origin https://github.com/GloriousEggroll/proton-ge-custom
+          git fetch -q --depth=1 --filter=blob:none origin tag "$GE_TAG"
+          git checkout -q FETCH_HEAD
+          git sparse-checkout init --cone
+          git sparse-checkout set patches/wine-hotfixes/wine-wayland patches/wine-hotfixes/em-fixups patches/wine-hotfixes/wineland-child-rendering
+          cd ../wine
+          P=../gep/patches/wine-hotfixes
+          ok=0; ko=0
+          apply() { if patch -Np1 --no-backup-if-mismatch -s < "$1"; then ok=$((ok+1)); else ko=$((ko+1)); echo "ECHEC: $1"; fi; }
+          for f in $P/wine-wayland/*.patch; do apply "$f"; done
+          apply $P/em-fixups/0001-winewayland-add-SNI-tray-icons-and-native-context-me.patch
+          for f in $P/wineland-child-rendering/*.patch; do apply "$f"; done
+          for f in $P/em-fixups/*.patch; do
+            case "$f" in */0001-winewayland-add-SNI*) ;; *) apply "$f" ;; esac
+          done
+          echo "patchs GE : $ok appliqués, $ko en échec"
+          # Nos patchs (rotation, etc.)
+          for f in ../winewayland/ge/*.patch; do
+            [ -e "$f" ] || continue
+            echo "== $f"; patch -Np1 --no-backup-if-mismatch < "$f"
+          done
+
+      - name: Dump win32u/vulkan.c (diagnostic)
         run: |
           cd wine
-          for p in ../winewayland/*.patch; do
-            echo "== $p"; git apply --verbose "$p"
-          done
+          echo "=====BEGIN vulkan.c"; cat dlls/win32u/vulkan.c; echo "=====END vulkan.c"
+          echo "=====BEGIN client_surface"; grep -rn "struct client_surface_funcs" -A25 dlls/win32u/*.h include/ntuser.h 2>/dev/null | head -80; echo "=====END client_surface"
 
       - name: Générer configure
         run: |
@@ -57,8 +85,10 @@ jobs:
 
       - name: Configurer
         run: |
+          # libxkbcommon de Ubuntu 24.04 (1.6) n'a pas XKB_VMOD_NAME_SCROLL (1.8+)
+          printf '%s\n' '#ifndef XKB_VMOD_NAME_SCROLL' '#define XKB_VMOD_NAME_SCROLL "ScrollLock"' '#endif' > "$PWD/xkbcompat.h"
           mkdir build && cd build
-          ../wine/configure --enable-win64 --disable-tests \
+          CFLAGS="-g -O2 -include $GITHUB_WORKSPACE/xkbcompat.h" ../wine/configure --enable-win64 --disable-tests \
             --with-wayland --without-x
 
       - name: Compiler winewayland.so
@@ -70,7 +100,7 @@ jobs:
         run: |
           mkdir out
           cp build/dlls/winewayland.drv/winewayland.so out/
-          cp winewayland/*.patch out/
+          cp winewayland/ge/*.patch out/ 2>/dev/null || true
           (cd out && sha256sum winewayland.so > SHA256SUMS)
 
       - uses: actions/upload-artifact@v4

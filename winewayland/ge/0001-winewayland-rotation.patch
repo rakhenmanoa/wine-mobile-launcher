@@ -1,0 +1,717 @@
+diff --git a/dlls/winewayland.drv/wayland_output.c b/dlls/winewayland.drv/wayland_output.c
+index 203a415..309e36b 100644
+--- a/dlls/winewayland.drv/wayland_output.c
++++ b/dlls/winewayland.drv/wayland_output.c
+@@ -147,7 +147,7 @@ static void wayland_output_done(struct wayland_output *output)
+         RB_FOR_EACH_ENTRY(mode, &output->pending.modes, struct wayland_output_mode, entry)
+         {
+             /* Need to flip w,h when the output is transformed by 90 or 270 degrees */
+-            if (output->current.transform & WL_OUTPUT_TRANSFORM_90)
++            if ((output->current.transform & WL_OUTPUT_TRANSFORM_90) != (wayland_get_rotation() ? 1 : 0))
+             {
+                 const int32_t temp = mode->width;
+                 mode->width = mode->height;
+@@ -322,6 +322,12 @@ static void zxdg_output_v1_handle_logical_size(void *data,
+ {
+     struct wayland_output *output = data;
+     TRACE("logical_w=%d logical_h=%d\n", width, height);
++    if (wayland_get_rotation())
++    {
++        int32_t tmp = width;
++        width = height;
++        height = tmp;
++    }
+     output->pending.logical_w = width;
+     output->pending.logical_h = height;
+     output->pending.flags |= WAYLAND_OUTPUT_LOGICAL_WH;
+diff --git a/dlls/winewayland.drv/wayland_pointer.c b/dlls/winewayland.drv/wayland_pointer.c
+index a16fc4f..70f0690 100644
+--- a/dlls/winewayland.drv/wayland_pointer.c
++++ b/dlls/winewayland.drv/wayland_pointer.c
+@@ -491,8 +491,7 @@ static void wayland_motion_delta_to_window(struct wayland_surface *surface,
+                                            double surface_x, double surface_y,
+                                            double *window_x, double *window_y)
+ {
+-    *window_x = surface_x * surface->window.scale;
+-    *window_y = surface_y * surface->window.scale;
++    map_delta_from_surface(surface, surface_x, surface_y, window_x, window_y);
+ }
+ 
+ /* Some compositors seem to have broken rawinput so allow users to disable/adjust sensitivity */
+@@ -1158,17 +1157,23 @@ BOOL WAYLAND_SetCursorPos(INT x, INT y)
+         if (wl_surface)
+         {
+             pthread_mutex_lock(&pointer->mutex);
+-            wp_pointer_warp_v1_warp_pointer(process_wayland.wp_pointer_warp_v1,
+-                                            wl_surface, pointer->wl_pointer,
+-                                            wl_fixed_from_int(surface_pt.x),
+-                                            wl_fixed_from_int(surface_pt.y),
+-                                            pointer->enter_serial);
+-            pthread_mutex_unlock(&pointer->mutex);
++            /* Sur un appareil sans souris (tactile seul) il n'y a pas de wl_pointer :
++             * le protocole interdit alors un argument NULL (erreur de marshalling). */
++            if (pointer->wl_pointer)
++            {
++                wp_pointer_warp_v1_warp_pointer(process_wayland.wp_pointer_warp_v1,
++                                                wl_surface, pointer->wl_pointer,
++                                                wl_fixed_from_int(surface_pt.x),
++                                                wl_fixed_from_int(surface_pt.y),
++                                                pointer->enter_serial);
++                pthread_mutex_unlock(&pointer->mutex);
+ 
+-            TRACE("warping to %d,%d\n", x, y);
+-            wl_display_flush(process_wayland.wl_display);
++                TRACE("warping to %d,%d\n", x, y);
++                wl_display_flush(process_wayland.wl_display);
+ 
+-            return TRUE;
++                return TRUE;
++            }
++            pthread_mutex_unlock(&pointer->mutex);
+         }
+     }
+ 
+@@ -1185,6 +1190,27 @@ BOOL WAYLAND_SetCursorPos(INT x, INT y)
+ /***********************************************************************
+  *	     WAYLAND_ClipCursor
+  */
++static pthread_mutex_t last_clip_mutex = PTHREAD_MUTEX_INITIALIZER;
++static RECT last_clip;
++static BOOL last_clip_valid;
++
++void wayland_set_last_clip(const RECT *clip)
++{
++    pthread_mutex_lock(&last_clip_mutex);
++    if (clip && !IsRectEmpty(clip)) { last_clip = *clip; last_clip_valid = TRUE; }
++    else last_clip_valid = FALSE;
++    pthread_mutex_unlock(&last_clip_mutex);
++}
++
++BOOL wayland_get_last_clip(RECT *clip)
++{
++    BOOL ret;
++    pthread_mutex_lock(&last_clip_mutex);
++    if ((ret = last_clip_valid)) *clip = last_clip;
++    pthread_mutex_unlock(&last_clip_mutex);
++    return ret;
++}
++
+ BOOL WAYLAND_ClipCursor(const RECT *clip, BOOL reset)
+ {
+     struct wayland_pointer *pointer = &process_wayland.pointer;
+@@ -1196,6 +1222,7 @@ BOOL WAYLAND_ClipCursor(const RECT *clip, BOOL reset)
+     POINT cursor_pos, warp;
+ 
+     TRACE("clip=%s reset=%d\n", wine_dbgstr_rect(clip), reset);
++    wayland_set_last_clip(reset ? NULL : clip);
+ 
+     NtUserGetCursorPos(&cursor_pos);
+     hwnd = NtUserGetForegroundWindow();
+diff --git a/dlls/winewayland.drv/wayland_surface.c b/dlls/winewayland.drv/wayland_surface.c
+index 4226912..b82aa47 100644
+--- a/dlls/winewayland.drv/wayland_surface.c
++++ b/dlls/winewayland.drv/wayland_surface.c
+@@ -41,6 +41,8 @@
+ 
+ WINE_DEFAULT_DEBUG_CHANNEL(waylanddrv);
+ 
++static int surface_rotation(struct wayland_surface *surface);
++
+ static LONG wayland_surface_serial_counter;
+ 
+ static void wayland_surface_clear_direct_dmabuf(struct wayland_surface *surface,
+@@ -1111,7 +1113,7 @@ static void xdg_toplevel_handle_configure(void *private,
+ 
+     if ((surface = data->wayland_surface) && wayland_surface_is_toplevel(surface))
+     {
+-        surface->pending.rect = rect = map_rect_from_surface(surface, rect);
++        surface->pending.rect = rect = map_toplevel_config_from_surface(surface, rect);
+         surface->pending.state = config_state;
+         if (!surface->pending.decor)
+             surface->pending.decor = surface->current.decor;
+@@ -1491,6 +1493,7 @@ struct wayland_surface *wayland_surface_create(HWND hwnd)
+     }
+ 
+     surface->window.scale = 1.0;
++    wayland_surface_set_rotation_transform(surface);
+     surface->comitted.scale = 0.0;
+     surface->ensured_contents = WAYLAND_SURFACE_NOT_ENSURED;
+     surface->alpha_multiplier = UINT32_MAX;
+@@ -1675,6 +1678,7 @@ void wayland_surface_make_toplevel(struct wayland_surface *surface, BOOL server_
+ 
+     wayland_surface_clear_role(surface);
+     surface->role = WAYLAND_SURFACE_ROLE_TOPLEVEL;
++    wayland_surface_set_rotation_transform(surface);
+ 
+     surface->xdg_surface =
+         xdg_wm_base_get_xdg_surface(process_wayland.xdg_wm_base, surface->wl_surface);
+@@ -1743,6 +1747,7 @@ void wayland_surface_make_subsurface(struct wayland_surface *surface,
+ 
+     wayland_surface_clear_role(surface);
+     surface->role = WAYLAND_SURFACE_ROLE_SUBSURFACE;
++    wayland_surface_set_rotation_transform(surface);
+ 
+     TRACE("surface=%p parent=%p\n", surface, parent);
+ 
+@@ -1912,6 +1917,7 @@ void wayland_surface_make_popup(struct wayland_surface *surface,
+ 
+     wayland_surface_clear_role(surface);
+     surface->role = WAYLAND_SURFACE_ROLE_POPUP;
++    wayland_surface_set_rotation_transform(surface);
+     surface->owner_hwnd = NULL;
+     surface->xdg_popup_grabbed = FALSE;
+ 
+@@ -2047,6 +2053,7 @@ void wayland_surface_make_layer(struct wayland_surface *surface, const RECT *rec
+ 
+     wayland_surface_clear_role(surface);
+     surface->role = WAYLAND_SURFACE_ROLE_LAYER;
++    wayland_surface_set_rotation_transform(surface);
+     surface->layer_output = output;
+     surface->layer_menu = menu;
+     /* Tray menus must be above top-layer panels with exclusive focus.
+@@ -2282,9 +2289,22 @@ static void wayland_surface_attach_shm_buffer(struct wayland_surface *surface,
+     win_width = max(1, min(win_width, shm_buffer->width));
+     win_height = max(1, min(win_height, shm_buffer->height));
+ 
+-    wp_viewport_set_source(surface->wp_viewport, 0, 0,
+-                           wl_fixed_from_int(win_width),
+-                           wl_fixed_from_int(win_height));
++    switch (surface_rotation(surface))
++    {
++    case 90:
++        wp_viewport_set_source(surface->wp_viewport, 0, wl_fixed_from_int(shm_buffer->width - win_width),
++                               wl_fixed_from_int(win_height), wl_fixed_from_int(win_width));
++        break;
++    case 270:
++        wp_viewport_set_source(surface->wp_viewport, wl_fixed_from_int(shm_buffer->height - win_height), 0,
++                               wl_fixed_from_int(win_height), wl_fixed_from_int(win_width));
++        break;
++    default:
++        wp_viewport_set_source(surface->wp_viewport, 0, 0,
++                               wl_fixed_from_int(win_width),
++                               wl_fixed_from_int(win_height));
++        break;
++    }
+ 
+     surface->content_width = win_width;
+     surface->content_height = win_height;
+@@ -2356,7 +2376,14 @@ static void wayland_surface_reconfigure_subsurface(struct wayland_surface *surfa
+ 
+     point.x = surface->window.rect.left - toplevel_surface->window.rect.left;
+     point.y = surface->window.rect.top - toplevel_surface->window.rect.top;
+-    point = map_point_to_surface(surface, point);
++    {
++        RECT sub_rect = { point.x, point.y,
++                          point.x + surface->window.rect.right - surface->window.rect.left,
++                          point.y + surface->window.rect.bottom - surface->window.rect.top };
++        sub_rect = map_subsurface_rect_to_surface(surface, toplevel_surface, sub_rect);
++        point.x = sub_rect.left;
++        point.y = sub_rect.top;
++    }
+ 
+     TRACE("hwnd=%p pos=%d,%d\n", surface->hwnd, point.x, point.y);
+     wl_subsurface_set_position(surface->wl_subsurface, point.x, point.y);
+@@ -2605,6 +2632,43 @@ static void wayland_surface_reconfigure_size(struct wayland_surface *surface,
+  *
+  * Reconfigures the subsurface covering the client area.
+  */
++BOOL wayland_get_keep_aspect_rect(HWND hwnd, const RECT *cr, RECT *out)
++{
++    static const WCHAR extent_prop[] = {'_','_','w','i','n','e','_','v','k','_','e','x','t','e','n','t',0};
++    const char *keep = getenv("WINE_WAYLAND_KEEP_ASPECT");
++    ULONG_PTR v;
++    int ew, eh, cw, ch, dw, dh;
++    double scale;
++
++    v = (ULONG_PTR)NtUserGetProp(hwnd, extent_prop);
++    {
++        static ULONG_PTR last_v = ~(ULONG_PTR)0;
++        if (v != last_v)
++        {
++            last_v = v;
++            TRACE("keep aspect check: env=%s hwnd=%p prop=%#lx\n", keep ? keep : "(unset)", hwnd, (unsigned long)v);
++        }
++    }
++    if (!keep || !atoi(keep)) return FALSE;
++    ew = v & 0xffff; eh = (v >> 16) & 0xffff;
++    cw = cr->right - cr->left; ch = cr->bottom - cr->top;
++    if (!ew || !eh || cw <= 0 || ch <= 0) return FALSE;
++    scale = min((double)cw / ew, (double)ch / eh);
++    dw = (int)(ew * scale + 0.5); dh = (int)(eh * scale + 0.5);
++    if (dw >= cw && dh >= ch) return FALSE;
++    out->left = cr->left + (cw - dw) / 2;
++    out->top = cr->top + (ch - dh) / 2;
++    out->right = out->left + dw;
++    out->bottom = out->top + dh;
++    return TRUE;
++}
++
++static BOOL wayland_keep_aspect_enabled(void)
++{
++    const char *keep = getenv("WINE_WAYLAND_KEEP_ASPECT");
++    return keep && atoi(keep);
++}
++
+ static BOOL wayland_client_surface_should_stack_above_parent(
+         struct wayland_surface *surface, struct wayland_client_surface *client,
+         HWND hwnd, HWND toplevel, BOOL content_over_producer)
+@@ -2613,7 +2677,11 @@ static BOOL wayland_client_surface_should_stack_above_parent(
+     /* A single opaque client surface covering the whole toplevel can sit above
+      * an opaque parent carrier without using transparent punch-through. */
+     if (hwnd != toplevel) return FALSE;
+-    if (content_over_producer || ReadAcquire(&client->has_alpha)) return FALSE;
++    /* keep-aspect : les bandes noires viennent du porteur opaque, l'alpha du client n'y change rien */
++    TRACE("stack check: content_over_producer=%d has_alpha=%d keep_aspect=%d\n", content_over_producer,
++          (int)ReadAcquire(&client->has_alpha), wayland_keep_aspect_enabled());
++    if (content_over_producer ||
++        (ReadAcquire(&client->has_alpha) && !wayland_keep_aspect_enabled())) return FALSE;
+     if (surface->window.exstyle & WS_EX_LAYERED) return FALSE;
+     if (!wayland_surface_is_toplevel(surface) || surface->window.minimized) return FALSE;
+     /* The outer Win32 rect may retain stale frame extents across a fullscreen
+@@ -2654,6 +2722,18 @@ static BOOL wayland_surface_reconfigure_client(struct wayland_surface *surface,
+     /* The offset of the client area origin relatively to the window origin. */
+     OffsetRect(&rect, window->client_rect.left - window->rect.left,
+                window->client_rect.top - window->rect.top);
++    /* WINE_WAYLAND_KEEP_ASPECT=1 : win32u publie la taille de la swapchain du jeu
++     * (propriété de fenêtre) ; la surface Vulkan est ajustée à ce format, centrée. */
++    {
++        RECT fit;
++        if (wayland_get_keep_aspect_rect(surface->hwnd, client_rect, &fit))
++        {
++            TRACE("keep aspect: client %s -> %s\n", wine_dbgstr_rect(client_rect), wine_dbgstr_rect(&fit));
++            rect = fit;
++            OffsetRect(&rect, window->client_rect.left - window->rect.left,
++                       window->client_rect.top - window->rect.top);
++        }
++    }
+     rect = map_rect_to_surface(surface, rect);
+ 
+     TRACE("hwnd=%p rect=%s\n", surface->hwnd, wine_dbgstr_rect(&rect));
+@@ -4576,6 +4656,88 @@ failed:
+     return NULL;
+ }
+ 
++/**********************************************************************
++ *          Rotation (WINE_WAYLAND_ROTATE=90|270)
++ *
++ * Wine voit un écran paysage ; la surface Wayland reste portrait et les
++ * tampons sont rendus en paysage puis pivotés par le compositeur
++ * (wl_surface.set_buffer_transform).
++ *
++ *  90  : fenêtre (x,y) -> surface (y, W-x)    inverse : x = W-sy, y = sx
++ *  270 : fenêtre (x,y) -> surface (H-y, x)    inverse : x = sy,   y = H-sx
++ * (W,H = taille de la fenêtre en coordonnées fenêtre)
++ */
++int wayland_get_rotation(void)
++{
++    static int rotation = -1;
++    if (rotation < 0)
++    {
++        const char *env = getenv("WINE_WAYLAND_ROTATE");
++        rotation = env ? atoi(env) : 0;
++        if (rotation != 90 && rotation != 270) rotation = 0;
++        if (rotation) TRACE("rotation=%d\n", rotation);
++    }
++    return rotation;
++}
++
++uint32_t wayland_get_buffer_transform(void)
++{
++    switch (wayland_get_rotation())
++    {
++    case 90: return WL_OUTPUT_TRANSFORM_90;
++    case 270: return WL_OUTPUT_TRANSFORM_270;
++    default: return WL_OUTPUT_TRANSFORM_NORMAL;
++    }
++}
++
++/* Seuls les toplevels et leurs sous-surfaces sont pivotés (pas les popups,
++ * ni les surfaces layer comme l'overlay Steam). */
++static int surface_rotation(struct wayland_surface *surface)
++{
++    if (surface->role == WAYLAND_SURFACE_ROLE_POPUP ||
++        surface->role == WAYLAND_SURFACE_ROLE_LAYER) return 0;
++    return wayland_get_rotation();
++}
++
++void wayland_surface_set_rotation_transform(struct wayland_surface *surface)
++{
++    wl_surface_set_buffer_transform(surface->wl_surface,
++                                    surface_rotation(surface) ? wayland_get_buffer_transform()
++                                                              : WL_OUTPUT_TRANSFORM_NORMAL);
++}
++
++static void rotate_to_surface(int rotation, double fw, double fh, double x, double y,
++                              double *ox, double *oy)
++{
++    switch (rotation)
++    {
++    case 90: *ox = y; *oy = fw - x; break;
++    case 270: *ox = fh - y; *oy = x; break;
++    default: *ox = x; *oy = y; break;
++    }
++}
++
++static RECT rect_to_surface(struct wayland_surface *surface, double fw, double fh, RECT rect)
++{
++    int rotation = surface_rotation(surface);
++    double s = surface->window.scale, x0, y0, x1, y1;
++    RECT out;
++
++    rotate_to_surface(rotation, fw, fh, rect.left, rect.top, &x0, &y0);
++    rotate_to_surface(rotation, fw, fh, rect.right, rect.bottom, &x1, &y1);
++    out.left = round(min(x0, x1) / s);
++    out.top = round(min(y0, y1) / s);
++    out.right = round(max(x0, x1) / s);
++    out.bottom = round(max(y0, y1) / s);
++    return out;
++}
++
++static void surface_frame_size(struct wayland_surface *surface, double *fw, double *fh)
++{
++    *fw = surface->window.rect.right - surface->window.rect.left;
++    *fh = surface->window.rect.bottom - surface->window.rect.top;
++}
++
+ /**********************************************************************
+  *          map_rect_to_surface
+  *
+@@ -4583,11 +4745,18 @@ failed:
+  */
+ RECT map_rect_to_surface(struct wayland_surface *surface, RECT rect)
+ {
+-    rect.left = round(rect.left / surface->window.scale);
+-    rect.top  = round(rect.top / surface->window.scale);
+-    rect.right = round(rect.right / surface->window.scale);
+-    rect.bottom  = round(rect.bottom / surface->window.scale);
+-    return rect;
++    double fw, fh;
++    surface_frame_size(surface, &fw, &fh);
++    return rect_to_surface(surface, fw, fh, rect);
++}
++
++/* Rectangle d'une sous-surface exprimé dans le repère de son toplevel. */
++RECT map_subsurface_rect_to_surface(struct wayland_surface *surface,
++                                    struct wayland_surface *toplevel, RECT rect)
++{
++    double fw, fh;
++    surface_frame_size(toplevel, &fw, &fh);
++    return rect_to_surface(surface, fw, fh, rect);
+ }
+ 
+ /**********************************************************************
+@@ -4597,11 +4766,30 @@ RECT map_rect_to_surface(struct wayland_surface *surface, RECT rect)
+  */
+ POINT map_point_to_surface(struct wayland_surface *surface, POINT point)
+ {
+-    point.x = round(point.x / surface->window.scale);
+-    point.y  = round(point.y / surface->window.scale);
++    double fw, fh, x, y;
++    surface_frame_size(surface, &fw, &fh);
++    rotate_to_surface(surface_rotation(surface), fw, fh, point.x, point.y, &x, &y);
++    point.x = round(x / surface->window.scale);
++    point.y = round(y / surface->window.scale);
+     return point;
+ }
+ 
++static void rotate_from_surface(struct wayland_surface *surface, double sx, double sy,
++                                double *wx, double *wy)
++{
++    double s = surface->window.scale, fw, fh;
++
++    surface_frame_size(surface, &fw, &fh);
++    sx *= s;
++    sy *= s;
++    switch (surface_rotation(surface))
++    {
++    case 90: *wx = fw - sy; *wy = sx; break;
++    case 270: *wx = sy; *wy = fh - sx; break;
++    default: *wx = sx; *wy = sy; break;
++    }
++}
++
+ /**********************************************************************
+  *          map_rect_from_surface
+  *
+@@ -4609,11 +4797,27 @@ POINT map_point_to_surface(struct wayland_surface *surface, POINT point)
+  */
+ RECT map_rect_from_surface(struct wayland_surface *surface, RECT rect)
+ {
+-    rect.left = round(rect.left * surface->window.scale);
+-    rect.top  = round(rect.top * surface->window.scale);
+-    rect.right = round(rect.right * surface->window.scale);
+-    rect.bottom  = round(rect.bottom * surface->window.scale);
+-    return rect;
++    double x0, y0, x1, y1;
++    RECT out;
++
++    rotate_from_surface(surface, rect.left, rect.top, &x0, &y0);
++    rotate_from_surface(surface, rect.right, rect.bottom, &x1, &y1);
++    out.left = round(min(x0, x1));
++    out.top = round(min(y0, y1));
++    out.right = round(max(x0, x1));
++    out.bottom = round(max(y0, y1));
++    return out;
++}
++
++/* Taille d'un configure xdg_toplevel (surface) -> rectangle fenêtre. */
++RECT map_toplevel_config_from_surface(struct wayland_surface *surface, RECT rect)
++{
++    double s = surface->window.scale;
++    int w = rect.right - rect.left, h = rect.bottom - rect.top;
++    RECT out = {0, 0, round(w * s), round(h * s)};
++
++    if (surface_rotation(surface)) { out.right = round(h * s); out.bottom = round(w * s); }
++    return out;
+ }
+ 
+ /**********************************************************************
+@@ -4623,11 +4827,34 @@ RECT map_rect_from_surface(struct wayland_surface *surface, RECT rect)
+  */
+ POINT map_point_from_surface(struct wayland_surface *surface, POINT point)
+ {
+-    point.x = round(point.x * surface->window.scale);
+-    point.y = round(point.y * surface->window.scale);
++    double x, y;
++    rotate_from_surface(surface, point.x, point.y, &x, &y);
++    point.x = round(x);
++    point.y = round(y);
+     return point;
+ }
+ 
++void map_pointd_from_surface(struct wayland_surface *surface, double surface_x, double surface_y,
++                             double *window_x, double *window_y)
++{
++    rotate_from_surface(surface, surface_x, surface_y, window_x, window_y);
++}
++
++void map_delta_from_surface(struct wayland_surface *surface, double surface_dx, double surface_dy,
++                            double *window_dx, double *window_dy)
++{
++    double s = surface->window.scale, x, y;
++
++    switch (surface_rotation(surface))
++    {
++    case 90: x = -surface_dy; y = surface_dx; break;
++    case 270: x = surface_dy; y = -surface_dx; break;
++    default: x = surface_dx; y = surface_dy; break;
++    }
++    *window_dx = x * s;
++    *window_dy = y * s;
++}
++
+ void wayland_surface_coords_from_window(struct wayland_surface *surface,
+                                         int window_x, int window_y,
+                                         int *surface_x, int *surface_y)
+@@ -5107,6 +5334,8 @@ struct wayland_client_surface *wayland_client_surface_create(HWND hwnd)
+         goto err;
+     }
+     wl_surface_set_user_data(client->wl_surface, hwnd);
++    if (wayland_get_rotation())
++        wl_surface_set_buffer_transform(client->wl_surface, wayland_get_buffer_transform());
+ 
+     /* Keep surface feedback alive across WSI swapchain recreation. Mutter drops
+      * its cached scanout tranche when the last feedback subscription is destroyed. */
+@@ -5309,7 +5538,8 @@ void wayland_client_surface_attach(struct wayland_client_surface *client, HWND t
+                                            stack_above_parent))
+         wl_surface_commit(surface->wl_surface);
+ 
+-    if (!toplevel_data->window_contents)
++    if (!toplevel_data->window_contents ||
++        (stack_above_parent && wayland_keep_aspect_enabled()))
+     {
+         if (stack_above_parent)
+             wayland_surface_attach_opaque_carrier(surface);
+diff --git a/dlls/winewayland.drv/wayland_touch.c b/dlls/winewayland.drv/wayland_touch.c
+index e9a57f7..88344c4 100644
+--- a/dlls/winewayland.drv/wayland_touch.c
++++ b/dlls/winewayland.drv/wayland_touch.c
+@@ -28,8 +28,10 @@
+ #include "wine/debug.h"
+ 
+ #include <stdlib.h>
++#include <string.h>
+ 
+ WINE_DEFAULT_DEBUG_CHANNEL(cursor);
++WINE_DECLARE_DEBUG_CHANNEL(waylanddrv);
+ 
+ static LPARAM map_point_vscreen(double x, double y)
+ {
+@@ -53,8 +55,68 @@ static void wayland_touch_point_to_window(struct wayland_surface *surface,
+                                           double surface_x, double surface_y,
+                                           double *window_x, double *window_y)
+ {
+-    *window_x = surface_x * surface->window.scale + surface->window.rect.left;
+-    *window_y = surface_y * surface->window.scale + surface->window.rect.top;
++    double w = surface->window.rect.right - surface->window.rect.left;
++    double h = surface->window.rect.bottom - surface->window.rect.top;
++    const char *flip = getenv("WINE_WAYLAND_TOUCH_FLIP");
++
++    map_pointd_from_surface(surface, surface_x, surface_y, window_x, window_y);
++
++    /* Test : inversion des axes du tactile (x, y, ou xy) */
++    if (flip && strchr(flip, 'x')) *window_x = w - *window_x;
++    if (flip && strchr(flip, 'y')) *window_y = h - *window_y;
++
++    /* WINE_WAYLAND_KEEP_ASPECT : l'image est ajustée dans le client ; le jeu croit qu'elle
++     * l'occupe entièrement, on étire donc la zone de l'image sur le client. */
++    {
++        RECT cr, fit;
++        int ox = surface->window.client_rect.left - surface->window.rect.left;
++        int oy = surface->window.client_rect.top - surface->window.rect.top;
++        cr.left = cr.top = 0;
++        cr.right = surface->window.client_rect.right - surface->window.client_rect.left;
++        cr.bottom = surface->window.client_rect.bottom - surface->window.client_rect.top;
++        if (wayland_get_keep_aspect_rect(surface->hwnd, &cr, &fit))
++        {
++            double cx = *window_x - ox, cy = *window_y - oy;
++            cx = (cx - fit.left) * (cr.right - cr.left) / (fit.right - fit.left);
++            cy = (cy - fit.top) * (cr.bottom - cr.top) / (fit.bottom - fit.top);
++            if (cx < 0) cx = 0; else if (cx > cr.right) cx = cr.right;
++            if (cy < 0) cy = 0; else if (cy > cr.bottom) cy = cr.bottom;
++            *window_x = cx + ox;
++            *window_y = cy + oy;
++        }
++    }
++
++    *window_x += surface->window.rect.left;
++    *window_y += surface->window.rect.top;
++}
++
++
++static int touch_mouse_emul_id = -1;
++
++static BOOL touch_mouse_emulation_enabled(void)
++{
++    const char *e = getenv("WINE_WAYLAND_TOUCH_MOUSE");
++    return e && atoi(e) != 0;
++}
++
++static void touch_send_mouse(HWND hwnd, LPARAM xy, DWORD flags)
++{
++    INPUT input = {0};
++
++    TRACE_(waylanddrv)("emulated mouse hwnd=%p xy=%d,%d flags=%#x\n", hwnd,
++                       (int)LOWORD(xy), (int)HIWORD(xy), (unsigned)flags);
++    input.type = INPUT_MOUSE;
++    input.mi.dwFlags = MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_MOVE;
++    input.mi.dx = LOWORD(xy);
++    input.mi.dy = HIWORD(xy);
++    NtUserSendHardwareInput(hwnd, SEND_HWMSG_NO_RAW, &input, 0);
++
++    if (flags)
++    {
++        input.mi.dwFlags = flags;
++        input.mi.dx = input.mi.dy = 0;
++        NtUserSendHardwareInput(hwnd, SEND_HWMSG_NO_RAW, &input, 0);
++    }
+ }
+ 
+ static void touch_handle_down(void *private, struct wl_touch *wl_touch,
+@@ -70,6 +132,7 @@ static void touch_handle_down(void *private, struct wl_touch *wl_touch,
+     INPUT input = {0};
+     HWND hwnd;
+ 
++    TRACE_(waylanddrv)("touch down event surface=%p id=%d\n", wl_surface, id);
+     if (!wl_surface) return;
+ 
+     InterlockedExchange(&process_wayland.input_serial, serial);
+@@ -88,7 +151,7 @@ static void touch_handle_down(void *private, struct wl_touch *wl_touch,
+     point->xy = map_point_vscreen(touch_x, touch_y);
+     wayland_win_data_release(data);
+ 
+-    TRACE("hwnd=%p id=%d pos=(%lf,%lf)\n", hwnd, id, touch_x, touch_y);
++    TRACE_(waylanddrv)("touch down hwnd=%p id=%d pos=(%lf,%lf)\n", hwnd, id, touch_x, touch_y);
+ 
+     input.type = INPUT_HARDWARE;
+     input.hi.uMsg = WM_POINTERDOWN;
+@@ -98,10 +161,16 @@ static void touch_handle_down(void *private, struct wl_touch *wl_touch,
+                        POINTER_MESSAGE_FLAG_NEW;
+ 
+     NtUserSendHardwareInput(hwnd, 0, &input, point->xy);
++    if (touch_mouse_emul_id < 0 && touch_mouse_emulation_enabled())
++    {
++        touch_mouse_emul_id = id;
++        touch_send_mouse(hwnd, point->xy, MOUSEEVENTF_LEFTDOWN);
++    }
+     wl_list_insert(&touch->touch_points, &point->link);
+ 
+     return;
+ err:
++    TRACE_(waylanddrv)("touch down dropped hwnd=%p data=%p\n", wl_surface_get_user_data(wl_surface), data);
+     if (data) wayland_win_data_release(data);
+ }
+ 
+@@ -141,6 +210,11 @@ static void touch_handle_up(void *private, struct wl_touch *wl_touch,
+     TRACE("hwnd=%p id=%d\n", point->focused_hwnd, id);
+ 
+     NtUserSendHardwareInput(point->focused_hwnd, 0, &input, point->xy);
++    if (touch_mouse_emul_id == id)
++    {
++        touch_send_mouse(point->focused_hwnd, point->xy, MOUSEEVENTF_LEFTUP);
++        touch_mouse_emul_id = -1;
++    }
+     free(point);
+ }
+ 
+@@ -175,7 +249,7 @@ static void touch_handle_motion(void *private, struct wl_touch *wl_touch,
+     point->xy = map_point_vscreen(touch_x, touch_y);
+     wayland_win_data_release(data);
+ 
+-    if (old_xy != point->xy) return;
++    if (old_xy == point->xy) return;
+ 
+     TRACE("hwnd=%p pos=(%lf,%lf)\n", point->focused_hwnd, touch_x, touch_y);
+ 
+@@ -186,6 +260,7 @@ static void touch_handle_motion(void *private, struct wl_touch *wl_touch,
+                        POINTER_MESSAGE_FLAG_INCONTACT;
+ 
+     NtUserSendHardwareInput(point->focused_hwnd, 0, &input, point->xy);
++    if (touch_mouse_emul_id == id) touch_send_mouse(point->focused_hwnd, point->xy, 0);
+ }
+ 
+ static void touch_handle_frame(void *private, struct wl_touch *wl_touch) { }
+@@ -208,6 +283,11 @@ static void touch_handle_cancel(void *private, struct wl_touch *wl_touch)
+         input.hi.wParamL = point->id;
+ 
+         NtUserSendHardwareInput(point->focused_hwnd, 0, &input, point->xy);
++        if (touch_mouse_emul_id == point->id)
++        {
++            touch_send_mouse(point->focused_hwnd, point->xy, MOUSEEVENTF_LEFTUP);
++            touch_mouse_emul_id = -1;
++        }
+         wl_list_remove(&point->link);
+         free(point);
+     }
+@@ -225,6 +305,7 @@ void wayland_touch_init(struct wl_touch *wl_touch)
+ {
+     struct wayland_touch *touch = &process_wayland.touch;
+ 
++    TRACE_(waylanddrv)("wl_touch bound\n");
+     touch->wl_touch = wl_touch;
+     wl_list_init(&touch->touch_points);
+     wl_touch_add_listener(touch->wl_touch, &wl_touch_listener, NULL);
+diff --git a/dlls/winewayland.drv/waylanddrv.h b/dlls/winewayland.drv/waylanddrv.h
+index 242262f..cd035fa 100644
+--- a/dlls/winewayland.drv/waylanddrv.h
++++ b/dlls/winewayland.drv/waylanddrv.h
+@@ -598,6 +598,19 @@ BOOL wayland_surface_reconfigure(struct wayland_surface *surface);
+ BOOL wayland_surface_config_is_compatible(struct wayland_surface_config *conf, RECT rect,
+                                           enum wayland_surface_config_state state);
+ void wayland_surface_update_toplevel_parent(struct wayland_surface *surface);
++int wayland_get_rotation(void);
++uint32_t wayland_get_buffer_transform(void);
++void wayland_set_last_clip(const RECT *clip);
++BOOL wayland_get_last_clip(RECT *clip);
++BOOL wayland_get_keep_aspect_rect(HWND hwnd, const RECT *client_rect, RECT *out);
++void wayland_surface_set_rotation_transform(struct wayland_surface *surface);
++RECT map_toplevel_config_from_surface(struct wayland_surface *surface, RECT rect);
++RECT map_subsurface_rect_to_surface(struct wayland_surface *surface,
++                                    struct wayland_surface *toplevel, RECT rect);
++void map_delta_from_surface(struct wayland_surface *surface, double surface_dx, double surface_dy,
++                            double *window_dx, double *window_dy);
++void map_pointd_from_surface(struct wayland_surface *surface, double surface_x, double surface_y,
++                             double *window_x, double *window_y);
+ RECT map_rect_to_surface(struct wayland_surface *surface, RECT rect);
+ POINT map_point_to_surface(struct wayland_surface *surface, POINT point);
+ RECT map_rect_from_surface(struct wayland_surface *surface, RECT rect);
