@@ -28,7 +28,36 @@
  }
  
  /* Cross-process producer helpers. */
-@@ -5263,7 +5279,9 @@
+@@ -5242,7 +5258,27 @@
+         swapchain->upscaler.fsr.lite = lite;
+         swapchain->upscaler.fsr.sharpness = sharpness;
+         swapchain->host_extents = capabilities.minImageExtent;
+-        create_info_host.imageExtent = capabilities.minImageExtent;
++        /* The host surface (e.g. Wayland) reports a minimum extent of 1x1 : with the forced hack the
++         * scaler output is the window's client size, fitted to the game's aspect ratio when
++         * WINE_WAYLAND_KEEP_ASPECT is set (same rectangle as the display driver's). */
++        if (force_fshack() &&
++            get_swapchain_surface_rect( surface->hwnd, &client_rect, NtUserGetWinMonitorDpi( surface->hwnd, MDT_WINE_RAW_DPI ) ))
++        {
++            const char *ka = getenv( "WINE_WAYLAND_KEEP_ASPECT" );
++            uint32_t cw = client_rect.right - client_rect.left, ch = client_rect.bottom - client_rect.top;
++            uint32_t w = cw, h = ch;
++            if (ka && strcmp( ka, "0" ) && create_info->imageExtent.width && create_info->imageExtent.height &&
++                (uint64_t)cw * create_info->imageExtent.height > (uint64_t)ch * create_info->imageExtent.width)
++                w = ((uint64_t)ch * create_info->imageExtent.width + create_info->imageExtent.height / 2) / create_info->imageExtent.height;
++            else if (ka && strcmp( ka, "0" ) && create_info->imageExtent.width && create_info->imageExtent.height &&
++                     (uint64_t)cw * create_info->imageExtent.height < (uint64_t)ch * create_info->imageExtent.width)
++                h = ((uint64_t)cw * create_info->imageExtent.height + create_info->imageExtent.width / 2) / create_info->imageExtent.width;
++            swapchain->host_extents.width = w;
++            swapchain->host_extents.height = h;
++            FIXME( "forced fshack: game %ux%u client %ux%u -> host %ux%u\n", (unsigned)create_info->imageExtent.width,
++                   (unsigned)create_info->imageExtent.height, cw, ch, w, h );
++        }
++        create_info_host.imageExtent = swapchain->host_extents;
+         create_info_host.imageFormat = swapchain->upscaler.is_fsr ? VK_FORMAT_B8G8R8A8_SRGB: VK_FORMAT_B8G8R8A8_UNORM;
+         create_info_host.imageUsage = VK_IMAGE_USAGE_STORAGE_BIT;
+ 
+@@ -5263,7 +5299,9 @@
       * itself), so that it can keep the aspect ratio when it scales the surface (WINE_WAYLAND_KEEP_ASPECT). */
      {
          static const WCHAR extent_prop[] = {'_','_','w','i','n','e','_','v','k','_','e','x','t','e','n','t',0};
