@@ -36,7 +36,7 @@ jobs:
           git fetch -q --depth=1 --filter=blob:none origin tag "$GE_TAG"
           git checkout -q FETCH_HEAD
           git sparse-checkout init --cone
-          git sparse-checkout set patches
+          git sparse-checkout set patches wineopenxr
           git ls-tree FETCH_HEAD wine wine-staging wineopenxr
           get() {  # nom url sha
             mkdir "../$1" && cd "../$1"
@@ -49,18 +49,14 @@ jobs:
           sha() { git ls-tree FETCH_HEAD "$1" | awk '{print $3}'; }
           get wine https://github.com/ValveSoftware/wine "$(sha wine)"
           get wine-staging https://github.com/wine-staging/wine-staging "$(sha wine-staging)"
-          WO=$(grep -A2 'submodule "wineopenxr"' .gitmodules 2>/dev/null | grep url | awk '{print $3}')
-          echo "wineopenxr url: $WO"
-          cd .. && ln -s gep/patches patches
+          cd .. && ln -s gep/patches patches && ln -s gep/wineopenxr wineopenxr
           ls
 
       - name: Patchs GE-Proton (section wine du script de préparation)
         run: |
           cd r
-          # wineopenxr n'est pas dans le dépôt GE (sous-module) : voir plus bas
           { echo '#!/bin/bash'; sed -n 3,14p gep/patches/protonprep-valve-staging.sh; sed -n 124,686p gep/patches/protonprep-valve-staging.sh; } > prep-wine.sh
           grep -n "wineopenxr" prep-wine.sh | head -3
-          mkdir -p wineopenxr
           bash prep-wine.sh 2>&1 | tee prep.log | tail -40
           echo "échecs:"; grep -c "FAILED\|Reversed\|rejects" prep.log || true
 
