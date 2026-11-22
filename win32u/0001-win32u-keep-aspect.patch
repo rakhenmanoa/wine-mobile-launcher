@@ -9,7 +9,26 @@
          swapchain->upscaler.is_fsr = fs_hack_is_fsr(&lite, &sharpness);
          swapchain->upscaler.fsr.lite = lite;
          swapchain->upscaler.fsr.sharpness = sharpness;
-@@ -6065,13 +6067,48 @@
+@@ -5257,6 +5259,18 @@
+                    create_info_host.imageFormat );
+     }
+ 
++    /* Tell the display driver the size of the game's swapchain (0 when the fullscreen hack scales it
++     * itself), so that it can keep the aspect ratio when it scales the surface (WINE_WAYLAND_KEEP_ASPECT). */
++    {
++        static const WCHAR extent_prop[] = {'_','_','w','i','n','e','_','v','k','_','e','x','t','e','n','t',0};
++        ULONG_PTR v = swapchain->fshack_dpi ? 0 :
++            ((ULONG_PTR)create_info->imageExtent.width | ((ULONG_PTR)create_info->imageExtent.height << 16));
++        FIXME( "swapchain: fshack_dpi=%u owner=%d image=%ux%u min=%ux%u\n", (unsigned)swapchain->fshack_dpi,
++               presentation_owner, (unsigned)create_info->imageExtent.width, (unsigned)create_info->imageExtent.height,
++               (unsigned)capabilities.minImageExtent.width, (unsigned)capabilities.minImageExtent.height );
++        if (presentation_owner) NtUserSetProp( surface->hwnd, extent_prop, (HANDLE)v );
++    }
++
+     native_hdr = prefer_native_hdr_colorspace( physical_device, surface, create_info_host.imageFormat,
+                                                create_info_host.imageColorSpace );
+     if (native_hdr) /* detach any color description attached for a previous swapchain */
+@@ -6065,13 +6079,48 @@
      constants[0] = 0;
      constants[1] = 0;
  
