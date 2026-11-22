@@ -1,0 +1,50 @@
+--- a/dlls/win32u/vulkan.c
++++ b/dlls/win32u/vulkan.c
+@@ -6065,13 +6065,43 @@
+     constants[0] = 0;
+     constants[1] = 0;
+ 
+-    /* offset by 0.5f because sampling is relative to pixel center */
+-    constants[0] -= 0.5f * swapchain->host_extents.width / swapchain->extents.width;
+-    constants[1] -= 0.5f * swapchain->host_extents.height / swapchain->extents.height;
+-
+     /* vec2: blit dst extents in real coords */
+     constants[2] = swapchain->host_extents.width;
+     constants[3] = swapchain->host_extents.height;
++
++    /* WINE_FULLSCREEN_KEEP_ASPECT=1 : keep the game's aspect ratio. The image is scaled
++     * uniformly to fit the host image and centered; the rest is the sampler's black border. */
++    {
++        static int keep_aspect = -1;
++        if (keep_aspect < 0)
++        {
++            const char *e = getenv( "WINE_FULLSCREEN_KEEP_ASPECT" );
++            keep_aspect = e && strcmp( e, "0" );
++        }
++        if (keep_aspect && swapchain->extents.width && swapchain->extents.height)
++        {
++            float sx = (float)swapchain->host_extents.width / swapchain->extents.width;
++            float sy = (float)swapchain->host_extents.height / swapchain->extents.height;
++            float scale = sx < sy ? sx : sy;
++            float dw = swapchain->extents.width * scale, dh = swapchain->extents.height * scale;
++
++            constants[0] = floorf( (swapchain->host_extents.width - dw) / 2 );
++            constants[1] = floorf( (swapchain->host_extents.height - dh) / 2 );
++            constants[2] = dw;
++            constants[3] = dh;
++            sx = scale;
++            sy = scale;
++            /* offset by 0.5f because sampling is relative to pixel center */
++            constants[0] -= 0.5f * sx;
++            constants[1] -= 0.5f * sy;
++        }
++        else
++        {
++            /* offset by 0.5f because sampling is relative to pixel center */
++            constants[0] -= 0.5f * swapchain->host_extents.width / swapchain->extents.width;
++            constants[1] -= 0.5f * swapchain->host_extents.height / swapchain->extents.height;
++        }
++    }
+     bind_pipeline(device, hack->cmd, &swapchain->blit_pipeline, hack->descriptor_set, constants);
+ 
+     /* local sizes in shader are 8 */

@@ -60,11 +60,6 @@ jobs:
           bash prep-wine.sh 2>&1 | tee prep.log | tail -40
           echo "échecs:"; grep -c "FAILED\|Reversed\|rejects" prep.log || true
 
-      - name: Dump vulkan.c (diagnostic)
-        run: |
-          cd r/wine
-          echo "=====BEGIN vulkan.c"; cat dlls/win32u/vulkan.c; echo "=====END vulkan.c"
-
       - name: Nos patchs win32u
         run: |
           cd r/wine
