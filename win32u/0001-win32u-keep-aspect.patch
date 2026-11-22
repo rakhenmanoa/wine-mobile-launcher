@@ -1,6 +1,15 @@
 --- a/dlls/win32u/vulkan.c
 +++ b/dlls/win32u/vulkan.c
-@@ -6065,13 +6065,43 @@
+@@ -5236,6 +5236,8 @@
+         if (!(capabilities.supportedUsageFlags & VK_IMAGE_USAGE_STORAGE_BIT))
+             FIXME( "Swapchain does not support required VK_IMAGE_USAGE_STORAGE_BIT\n" );
+ 
++        FIXME( "fshack swapchain: dpi=%u image=%ux%u min=%ux%u\n", (unsigned)swapchain->fshack_dpi, (unsigned)create_info->imageExtent.width,
++               (unsigned)create_info->imageExtent.height, (unsigned)capabilities.minImageExtent.width, (unsigned)capabilities.minImageExtent.height );
+         swapchain->upscaler.is_fsr = fs_hack_is_fsr(&lite, &sharpness);
+         swapchain->upscaler.fsr.lite = lite;
+         swapchain->upscaler.fsr.sharpness = sharpness;
+@@ -6065,13 +6067,48 @@
      constants[0] = 0;
      constants[1] = 0;
  
@@ -28,6 +37,11 @@
 +            float scale = sx < sy ? sx : sy;
 +            float dw = swapchain->extents.width * scale, dh = swapchain->extents.height * scale;
 +
++            static int once;
++            if (!once++)
++                FIXME( "keep aspect: game %ux%u host %ux%u -> %.0fx%.0f\n", (unsigned)swapchain->extents.width,
++                       (unsigned)swapchain->extents.height, (unsigned)swapchain->host_extents.width,
++                       (unsigned)swapchain->host_extents.height, dw, dh );
 +            constants[0] = floorf( (swapchain->host_extents.width - dw) / 2 );
 +            constants[1] = floorf( (swapchain->host_extents.height - dh) / 2 );
 +            constants[2] = dw;
