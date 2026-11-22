@@ -69,37 +69,84 @@ index 203a415..77d80fa 100644
      output->pending.logical_h = height;
      output->pending.flags |= WAYLAND_OUTPUT_LOGICAL_WH;
 diff --git a/dlls/winewayland.drv/wayland_pointer.c b/dlls/winewayland.drv/wayland_pointer.c
-index a16fc4f..b48a4a4 100644
+index a16fc4f..f82d751 100644
 --- a/dlls/winewayland.drv/wayland_pointer.c
 +++ b/dlls/winewayland.drv/wayland_pointer.c
-@@ -491,8 +491,7 @@ static void wayland_motion_delta_to_window(struct wayland_surface *surface,
-                                            double surface_x, double surface_y,
-                                            double *window_x, double *window_y)
- {
+@@ -482,19 +482,6 @@ static const struct wl_pointer_listener pointer_listener =
+ #endif
+ };
+ 
+-/**********************************************************************
+- *          wayland_motion_delta_to_window
+- *
+- * Converts the surface-local delta to window (logical) coordinate delta.
+- */
+-static void wayland_motion_delta_to_window(struct wayland_surface *surface,
+-                                           double surface_x, double surface_y,
+-                                           double *window_x, double *window_y)
+-{
 -    *window_x = surface_x * surface->window.scale;
 -    *window_y = surface_y * surface->window.scale;
-+    map_delta_from_surface(surface, surface_x, surface_y, window_x, window_y);
+-}
+-
+ /* Some compositors seem to have broken rawinput so allow users to disable/adjust sensitivity */
+ static double get_rawinput_scale(void)
+ {
+@@ -514,6 +501,25 @@ static double get_rawinput_scale(void)
+     return cached;
  }
  
- /* Some compositors seem to have broken rawinput so allow users to disable/adjust sensitivity */
-@@ -535,14 +534,20 @@ static void relative_pointer_v1_relative_motion(void *private,
-                                    wl_fixed_to_double(dx),
-                                    wl_fixed_to_double(dy),
-                                    &screen_x, &screen_y);
++static void wayland_mouse_rotate(double x, double y, double *rx, double *ry)
++{
++    static int rot = -1;
++
++    if (rot < 0)
++    {
++        const char *e = getenv("WINE_WAYLAND_MOUSE_ROT");
++        rot = e ? atoi(e) : 0;
++        rot = ((rot % 360) + 360) % 360;
++    }
++    switch (rot)
++    {
++    case 90: *rx = -y; *ry = x; break;
++    case 180: *rx = -x; *ry = -y; break;
++    case 270: *rx = y; *ry = -x; break;
++    default: *rx = x; *ry = y; break;
++    }
++}
++
+ static void relative_pointer_v1_relative_motion(void *private,
+                                                 struct zwp_relative_pointer_v1 *zwp_relative_pointer_v1,
+                                                 uint32_t utime_hi, uint32_t utime_lo,
+@@ -531,18 +537,26 @@ static void relative_pointer_v1_relative_motion(void *private,
+     if (!(hwnd = wayland_pointer_get_focused_hwnd())) return;
+     if (!(data = wayland_win_data_get(hwnd))) return;
+ 
+-    wayland_motion_delta_to_window(data->wayland_surface,
+-                                   wl_fixed_to_double(dx),
+-                                   wl_fixed_to_double(dy),
+-                                   &screen_x, &screen_y);
 -    wayland_win_data_release(data);
 -
-     if (scale > 0.0)
+-    if (scale > 0.0)
++    /* Les déplacements d'une souris restent dans le repère de l'utilisateur, pas dans celui
++     * de l'écran : pas de rotation par défaut (le jeu pivote seulement son image).
++     * WINE_WAYLAND_MOUSE_ROT = 0, 90, 180 ou 270 (sens horaire) pour ajuster. */
      {
 -        raw_x = wl_fixed_to_double(dx_unaccel) * scale;
 -        raw_y = wl_fixed_to_double(dy_unaccel) * scale;
-+        /* les deltas bruts doivent aussi suivre la rotation de l'écran
-+         * (sinon la souris relative est tournée de 90 degrés) */
 +        double ws = data->wayland_surface->window.scale;
-+        map_delta_from_surface(data->wayland_surface,
-+                               wl_fixed_to_double(dx_unaccel) * scale,
-+                               wl_fixed_to_double(dy_unaccel) * scale,
-+                               &raw_x, &raw_y);
-+        if (ws > 0.0) { raw_x /= ws; raw_y /= ws; }
++
++        wayland_mouse_rotate(wl_fixed_to_double(dx), wl_fixed_to_double(dy),
++                             &screen_x, &screen_y);
++        screen_x *= ws;
++        screen_y *= ws;
++        if (scale > 0.0)
++        {
++            wayland_mouse_rotate(wl_fixed_to_double(dx_unaccel) * scale,
++                                 wl_fixed_to_double(dy_unaccel) * scale,
++                                 &raw_x, &raw_y);
++        }
      }
 -    else
 +    wayland_win_data_release(data);
@@ -108,7 +155,7 @@ index a16fc4f..b48a4a4 100644
      {
          raw_x = screen_x;
          raw_y = screen_y;
-@@ -1158,17 +1163,23 @@ BOOL WAYLAND_SetCursorPos(INT x, INT y)
+@@ -1158,17 +1172,23 @@ BOOL WAYLAND_SetCursorPos(INT x, INT y)
          if (wl_surface)
          {
              pthread_mutex_lock(&pointer->mutex);
@@ -141,7 +188,7 @@ index a16fc4f..b48a4a4 100644
          }
      }
  
-@@ -1185,6 +1196,27 @@ BOOL WAYLAND_SetCursorPos(INT x, INT y)
+@@ -1185,6 +1205,27 @@ BOOL WAYLAND_SetCursorPos(INT x, INT y)
  /***********************************************************************
   *	     WAYLAND_ClipCursor
   */
@@ -169,7 +216,7 @@ index a16fc4f..b48a4a4 100644
  BOOL WAYLAND_ClipCursor(const RECT *clip, BOOL reset)
  {
      struct wayland_pointer *pointer = &process_wayland.pointer;
-@@ -1196,6 +1228,7 @@ BOOL WAYLAND_ClipCursor(const RECT *clip, BOOL reset)
+@@ -1196,6 +1237,7 @@ BOOL WAYLAND_ClipCursor(const RECT *clip, BOOL reset)
      POINT cursor_pos, warp;
  
      TRACE("clip=%s reset=%d\n", wine_dbgstr_rect(clip), reset);
