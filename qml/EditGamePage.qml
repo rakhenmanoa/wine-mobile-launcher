@@ -313,10 +313,10 @@ Kirigami.ScrollablePage {
 
             QQC2.ComboBox {
                 id: maxHeightBox
-                readonly property var values: [0, 1080, 900, 720, 576, 480]
+                readonly property var values: [0, 1080, 900, 720, 576, 480, 407]
                 enabled: waylandCheck.checked
                 Layout.fillWidth: true
-                model: ["Aucune limite", "1080p", "900p", "720p", "576p", "480p"]
+                model: ["Aucune limite", "1080p", "900p", "720p", "576p", "480p", "407p (taille logique Plasma, 1/3)"]
                 onActivated: root.scheduleSave()
             }
 
