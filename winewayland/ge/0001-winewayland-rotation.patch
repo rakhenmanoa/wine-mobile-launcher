@@ -25,7 +25,7 @@ index 203a415..309e36b 100644
      output->pending.logical_h = height;
      output->pending.flags |= WAYLAND_OUTPUT_LOGICAL_WH;
 diff --git a/dlls/winewayland.drv/wayland_pointer.c b/dlls/winewayland.drv/wayland_pointer.c
-index a16fc4f..7deaf1a 100644
+index a16fc4f..70f0690 100644
 --- a/dlls/winewayland.drv/wayland_pointer.c
 +++ b/dlls/winewayland.drv/wayland_pointer.c
 @@ -491,8 +491,7 @@ static void wayland_motion_delta_to_window(struct wayland_surface *surface,
@@ -71,8 +71,44 @@ index a16fc4f..7deaf1a 100644
          }
      }
  
+@@ -1185,6 +1190,27 @@ BOOL WAYLAND_SetCursorPos(INT x, INT y)
+ /***********************************************************************
+  *	     WAYLAND_ClipCursor
+  */
++static pthread_mutex_t last_clip_mutex = PTHREAD_MUTEX_INITIALIZER;
++static RECT last_clip;
++static BOOL last_clip_valid;
++
++void wayland_set_last_clip(const RECT *clip)
++{
++    pthread_mutex_lock(&last_clip_mutex);
++    if (clip && !IsRectEmpty(clip)) { last_clip = *clip; last_clip_valid = TRUE; }
++    else last_clip_valid = FALSE;
++    pthread_mutex_unlock(&last_clip_mutex);
++}
++
++BOOL wayland_get_last_clip(RECT *clip)
++{
++    BOOL ret;
++    pthread_mutex_lock(&last_clip_mutex);
++    if ((ret = last_clip_valid)) *clip = last_clip;
++    pthread_mutex_unlock(&last_clip_mutex);
++    return ret;
++}
++
+ BOOL WAYLAND_ClipCursor(const RECT *clip, BOOL reset)
+ {
+     struct wayland_pointer *pointer = &process_wayland.pointer;
+@@ -1196,6 +1222,7 @@ BOOL WAYLAND_ClipCursor(const RECT *clip, BOOL reset)
+     POINT cursor_pos, warp;
+ 
+     TRACE("clip=%s reset=%d\n", wine_dbgstr_rect(clip), reset);
++    wayland_set_last_clip(reset ? NULL : clip);
+ 
+     NtUserGetCursorPos(&cursor_pos);
+     hwnd = NtUserGetForegroundWindow();
 diff --git a/dlls/winewayland.drv/wayland_surface.c b/dlls/winewayland.drv/wayland_surface.c
-index 4226912..0922402 100644
+index 4226912..169f65d 100644
 --- a/dlls/winewayland.drv/wayland_surface.c
 +++ b/dlls/winewayland.drv/wayland_surface.c
 @@ -41,6 +41,8 @@
@@ -175,7 +211,35 @@ index 4226912..0922402 100644
  
      TRACE("hwnd=%p pos=%d,%d\n", surface->hwnd, point.x, point.y);
      wl_subsurface_set_position(surface->wl_subsurface, point.x, point.y);
-@@ -4576,6 +4603,88 @@ failed:
+@@ -2654,6 +2681,27 @@ static BOOL wayland_surface_reconfigure_client(struct wayland_surface *surface,
+     /* The offset of the client area origin relatively to the window origin. */
+     OffsetRect(&rect, window->client_rect.left - window->rect.left,
+                window->client_rect.top - window->rect.top);
++    /* WINE_WAYLAND_KEEP_ASPECT=1 : si le jeu confine le curseur à une zone qui
++     * occupe toute la hauteur (ou la largeur) du client mais pas l'autre, la
++     * surface Vulkan est réduite à cette zone (bandes noires, pas d'étirement). */
++    {
++        const char *keep = getenv("WINE_WAYLAND_KEEP_ASPECT");
++        RECT clip, c, cr = *client_rect;
++        if (keep && atoi(keep) && wayland_get_last_clip(&clip))
++        {
++            c = clip;
++            OffsetRect(&c, -window->client_rect.left, -window->client_rect.top);
++            if (IntersectRect(&c, &c, &cr) && !EqualRect(&c, &cr) &&
++                ((c.top == cr.top && c.bottom == cr.bottom) ||
++                 (c.left == cr.left && c.right == cr.right)))
++            {
++                TRACE("keep aspect: client %s -> %s\n", wine_dbgstr_rect(&cr), wine_dbgstr_rect(&c));
++                rect = c;
++                OffsetRect(&rect, window->client_rect.left - window->rect.left,
++                           window->client_rect.top - window->rect.top);
++            }
++        }
++    }
+     rect = map_rect_to_surface(surface, rect);
+ 
+     TRACE("hwnd=%p rect=%s\n", surface->hwnd, wine_dbgstr_rect(&rect));
+@@ -4576,6 +4624,88 @@ failed:
      return NULL;
  }
  
@@ -264,7 +328,7 @@ index 4226912..0922402 100644
  /**********************************************************************
   *          map_rect_to_surface
   *
-@@ -4583,11 +4692,18 @@ failed:
+@@ -4583,11 +4713,18 @@ failed:
   */
  RECT map_rect_to_surface(struct wayland_surface *surface, RECT rect)
  {
@@ -288,7 +352,7 @@ index 4226912..0922402 100644
  }
  
  /**********************************************************************
-@@ -4597,11 +4713,30 @@ RECT map_rect_to_surface(struct wayland_surface *surface, RECT rect)
+@@ -4597,11 +4734,30 @@ RECT map_rect_to_surface(struct wayland_surface *surface, RECT rect)
   */
  POINT map_point_to_surface(struct wayland_surface *surface, POINT point)
  {
@@ -321,7 +385,7 @@ index 4226912..0922402 100644
  /**********************************************************************
   *          map_rect_from_surface
   *
-@@ -4609,11 +4744,27 @@ POINT map_point_to_surface(struct wayland_surface *surface, POINT point)
+@@ -4609,11 +4765,27 @@ POINT map_point_to_surface(struct wayland_surface *surface, POINT point)
   */
  RECT map_rect_from_surface(struct wayland_surface *surface, RECT rect)
  {
@@ -354,7 +418,7 @@ index 4226912..0922402 100644
  }
  
  /**********************************************************************
-@@ -4623,11 +4774,34 @@ RECT map_rect_from_surface(struct wayland_surface *surface, RECT rect)
+@@ -4623,11 +4795,34 @@ RECT map_rect_from_surface(struct wayland_surface *surface, RECT rect)
   */
  POINT map_point_from_surface(struct wayland_surface *surface, POINT point)
  {
@@ -391,7 +455,7 @@ index 4226912..0922402 100644
  void wayland_surface_coords_from_window(struct wayland_surface *surface,
                                          int window_x, int window_y,
                                          int *surface_x, int *surface_y)
-@@ -5107,6 +5281,8 @@ struct wayland_client_surface *wayland_client_surface_create(HWND hwnd)
+@@ -5107,6 +5302,8 @@ struct wayland_client_surface *wayland_client_surface_create(HWND hwnd)
          goto err;
      }
      wl_surface_set_user_data(client->wl_surface, hwnd);
@@ -401,7 +465,7 @@ index 4226912..0922402 100644
      /* Keep surface feedback alive across WSI swapchain recreation. Mutter drops
       * its cached scanout tranche when the last feedback subscription is destroyed. */
 diff --git a/dlls/winewayland.drv/wayland_touch.c b/dlls/winewayland.drv/wayland_touch.c
-index e9a57f7..911c435 100644
+index e9a57f7..72c5fbd 100644
 --- a/dlls/winewayland.drv/wayland_touch.c
 +++ b/dlls/winewayland.drv/wayland_touch.c
 @@ -30,6 +30,7 @@
@@ -412,7 +476,7 @@ index e9a57f7..911c435 100644
  
  static LPARAM map_point_vscreen(double x, double y)
  {
-@@ -53,8 +54,36 @@ static void wayland_touch_point_to_window(struct wayland_surface *surface,
+@@ -53,8 +54,38 @@ static void wayland_touch_point_to_window(struct wayland_surface *surface,
                                            double surface_x, double surface_y,
                                            double *window_x, double *window_y)
  {
@@ -436,6 +500,8 @@ index e9a57f7..911c435 100644
 +{
 +    INPUT input = {0};
 +
++    TRACE_(waylanddrv)("emulated mouse hwnd=%p xy=%d,%d flags=%#x\n", hwnd,
++                       (int)LOWORD(xy), (int)HIWORD(xy), (unsigned)flags);
 +    input.type = INPUT_MOUSE;
 +    input.mi.dwFlags = MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_MOVE;
 +    input.mi.dx = LOWORD(xy);
@@ -451,7 +517,7 @@ index e9a57f7..911c435 100644
  }
  
  static void touch_handle_down(void *private, struct wl_touch *wl_touch,
-@@ -70,6 +99,7 @@ static void touch_handle_down(void *private, struct wl_touch *wl_touch,
+@@ -70,6 +101,7 @@ static void touch_handle_down(void *private, struct wl_touch *wl_touch,
      INPUT input = {0};
      HWND hwnd;
  
@@ -459,7 +525,7 @@ index e9a57f7..911c435 100644
      if (!wl_surface) return;
  
      InterlockedExchange(&process_wayland.input_serial, serial);
-@@ -88,7 +118,7 @@ static void touch_handle_down(void *private, struct wl_touch *wl_touch,
+@@ -88,7 +120,7 @@ static void touch_handle_down(void *private, struct wl_touch *wl_touch,
      point->xy = map_point_vscreen(touch_x, touch_y);
      wayland_win_data_release(data);
  
@@ -468,7 +534,7 @@ index e9a57f7..911c435 100644
  
      input.type = INPUT_HARDWARE;
      input.hi.uMsg = WM_POINTERDOWN;
-@@ -98,10 +128,16 @@ static void touch_handle_down(void *private, struct wl_touch *wl_touch,
+@@ -98,10 +130,16 @@ static void touch_handle_down(void *private, struct wl_touch *wl_touch,
                         POINTER_MESSAGE_FLAG_NEW;
  
      NtUserSendHardwareInput(hwnd, 0, &input, point->xy);
@@ -485,7 +551,7 @@ index e9a57f7..911c435 100644
      if (data) wayland_win_data_release(data);
  }
  
-@@ -141,6 +177,11 @@ static void touch_handle_up(void *private, struct wl_touch *wl_touch,
+@@ -141,6 +179,11 @@ static void touch_handle_up(void *private, struct wl_touch *wl_touch,
      TRACE("hwnd=%p id=%d\n", point->focused_hwnd, id);
  
      NtUserSendHardwareInput(point->focused_hwnd, 0, &input, point->xy);
@@ -497,7 +563,7 @@ index e9a57f7..911c435 100644
      free(point);
  }
  
-@@ -175,7 +216,7 @@ static void touch_handle_motion(void *private, struct wl_touch *wl_touch,
+@@ -175,7 +218,7 @@ static void touch_handle_motion(void *private, struct wl_touch *wl_touch,
      point->xy = map_point_vscreen(touch_x, touch_y);
      wayland_win_data_release(data);
  
@@ -506,7 +572,7 @@ index e9a57f7..911c435 100644
  
      TRACE("hwnd=%p pos=(%lf,%lf)\n", point->focused_hwnd, touch_x, touch_y);
  
-@@ -186,6 +227,7 @@ static void touch_handle_motion(void *private, struct wl_touch *wl_touch,
+@@ -186,6 +229,7 @@ static void touch_handle_motion(void *private, struct wl_touch *wl_touch,
                         POINTER_MESSAGE_FLAG_INCONTACT;
  
      NtUserSendHardwareInput(point->focused_hwnd, 0, &input, point->xy);
@@ -514,7 +580,7 @@ index e9a57f7..911c435 100644
  }
  
  static void touch_handle_frame(void *private, struct wl_touch *wl_touch) { }
-@@ -208,6 +250,11 @@ static void touch_handle_cancel(void *private, struct wl_touch *wl_touch)
+@@ -208,6 +252,11 @@ static void touch_handle_cancel(void *private, struct wl_touch *wl_touch)
          input.hi.wParamL = point->id;
  
          NtUserSendHardwareInput(point->focused_hwnd, 0, &input, point->xy);
@@ -526,7 +592,7 @@ index e9a57f7..911c435 100644
          wl_list_remove(&point->link);
          free(point);
      }
-@@ -225,6 +272,7 @@ void wayland_touch_init(struct wl_touch *wl_touch)
+@@ -225,6 +274,7 @@ void wayland_touch_init(struct wl_touch *wl_touch)
  {
      struct wayland_touch *touch = &process_wayland.touch;
  
@@ -535,15 +601,17 @@ index e9a57f7..911c435 100644
      wl_list_init(&touch->touch_points);
      wl_touch_add_listener(touch->wl_touch, &wl_touch_listener, NULL);
 diff --git a/dlls/winewayland.drv/waylanddrv.h b/dlls/winewayland.drv/waylanddrv.h
-index 242262f..4892652 100644
+index 242262f..b37cd42 100644
 --- a/dlls/winewayland.drv/waylanddrv.h
 +++ b/dlls/winewayland.drv/waylanddrv.h
-@@ -598,6 +598,16 @@ BOOL wayland_surface_reconfigure(struct wayland_surface *surface);
+@@ -598,6 +598,18 @@ BOOL wayland_surface_reconfigure(struct wayland_surface *surface);
  BOOL wayland_surface_config_is_compatible(struct wayland_surface_config *conf, RECT rect,
                                            enum wayland_surface_config_state state);
  void wayland_surface_update_toplevel_parent(struct wayland_surface *surface);
 +int wayland_get_rotation(void);
 +uint32_t wayland_get_buffer_transform(void);
++void wayland_set_last_clip(const RECT *clip);
++BOOL wayland_get_last_clip(RECT *clip);
 +void wayland_surface_set_rotation_transform(struct wayland_surface *surface);
 +RECT map_toplevel_config_from_surface(struct wayland_surface *surface, RECT rect);
 +RECT map_subsurface_rect_to_surface(struct wayland_surface *surface,
