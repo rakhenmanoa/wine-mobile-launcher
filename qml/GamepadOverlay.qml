@@ -34,7 +34,7 @@ Window {
     // sinon « Terminer » passe en mode jeu (édition au lancement du jeu).
     property bool editMode: overlayEdit
     readonly property real unit: Math.max(48, Math.min(content.width, content.height) / 7)
-    readonly property var controlList: [dpad, leftStick, rightStick, face, zl, l, zr, r, selectBtn, homeBtn, startBtn]
+    readonly property var controlList: [dpad, leftStick, rightStick, bA, bB, bX, bY, zl, l, zr, r, selectBtn, homeBtn, startBtn]
 
     flags: Qt.FramelessWindowHint | Qt.WindowDoesNotAcceptFocus | Qt.WindowStaysOnTopHint
     color: "transparent"
@@ -132,7 +132,8 @@ Window {
             id: btn
             property string label
             property int code
-            property real k: 1
+            property string key
+            readonly property real k: content.scaleOf(key)
             property bool touchZone: true
             property bool pressed: false
             width: win.unit * 0.9 * k
@@ -362,22 +363,23 @@ Window {
         Stick { id: leftStick; key: "leftStick"; axisX: win.absX; axisY: win.absY; x: content.posX(key, width, win.unit * 0.5); y: content.posY(key, height, dpad.y - height - win.unit * 0.3) }
         Stick { id: rightStick; key: "rightStick"; axisX: win.absRX; axisY: win.absRY; x: content.posX(key, width, content.width - width - win.unit * 0.5); y: content.posY(key, height, content.height - height - win.unit * 0.4) }
 
-        // Boutons ABXY (disposition Nintendo : A à droite, B en bas, X en haut, Y à gauche ; codes Xbox : A = SOUTH, B = EAST)
-        Item {
-            id: face
-            readonly property real k: content.scaleOf(key)
-            width: win.unit * 2.9 * k
-            height: width
-            readonly property string key: "face"
-            property bool touchZone: true
-            x: content.posX(key, width, content.width - width - win.unit * 0.4)
-            y: content.posY(key, height, rightStick.y - height - win.unit * 0.2)
-            readonly property real d: win.unit * 0.95
-            PadButton { label: "X"; code: win.btnNorth; k: face.k; x: (face.width - width) / 2; y: 0 }
-            PadButton { label: "B"; code: win.btnEast; k: face.k; x: (face.width - width) / 2; y: face.height - height }
-            PadButton { label: "Y"; code: win.btnWest; k: face.k; x: 0; y: (face.height - height) / 2 }
-            PadButton { label: "A"; code: win.btnSouth; k: face.k; x: face.width - width; y: (face.height - height) / 2 }
-        }
+        // Boutons ABXY : quatre contrôles indépendants (disposition Nintendo : A à droite, B en bas,
+        // X en haut, Y à gauche ; codes Xbox : A = SOUTH, B = EAST). Positions par défaut en losange.
+        readonly property real faceSize: win.unit * 2.9
+        readonly property real faceX: content.width - faceSize - win.unit * 0.4
+        readonly property real faceY: content.height - win.unit * 2.4 - win.unit * 0.4 - faceSize - win.unit * 0.2
+        PadButton { id: bX; key: "btnX"; label: "X"; code: win.btnNorth
+            x: content.posX(key, width, content.faceX + content.faceSize / 2 - width / 2)
+            y: content.posY(key, height, content.faceY) }
+        PadButton { id: bB; key: "btnB"; label: "B"; code: win.btnEast
+            x: content.posX(key, width, content.faceX + content.faceSize / 2 - width / 2)
+            y: content.posY(key, height, content.faceY + content.faceSize - win.unit * 0.9) }
+        PadButton { id: bY; key: "btnY"; label: "Y"; code: win.btnWest
+            x: content.posX(key, width, content.faceX)
+            y: content.posY(key, height, content.faceY + content.faceSize / 2 - height / 2) }
+        PadButton { id: bA; key: "btnA"; label: "A"; code: win.btnSouth
+            x: content.posX(key, width, content.faceX + content.faceSize - win.unit * 0.9)
+            y: content.posY(key, height, content.faceY + content.faceSize / 2 - height / 2) }
 
         // − Home +
         SmallButton { id: selectBtn; key: "select"; label: "−"; code: win.btnSelect; x: content.posX(key, width, content.width / 2 - width * 1.6); y: content.posY(key, height, content.height - height - win.unit * 0.3) }
