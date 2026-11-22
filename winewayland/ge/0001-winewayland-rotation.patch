@@ -1,3 +1,19 @@
+diff --git a/dlls/winewayland.drv/wayland.c b/dlls/winewayland.drv/wayland.c
+index 0ba14a6..6e624ca 100644
+--- a/dlls/winewayland.drv/wayland.c
++++ b/dlls/winewayland.drv/wayland.c
+@@ -75,6 +75,11 @@ static const struct xdg_wm_base_listener xdg_wm_base_listener =
+ static void wl_seat_handle_capabilities(void *data, struct wl_seat *seat,
+                                         enum wl_seat_capability caps)
+ {
++    /* WINE_WAYLAND_NO_POINTER=1 : ignorer toute souris, le jeu ne voit que le tactile
++     * (évite qu'un jeu bascule en mode souris à cause d'une manette/pavé tactile). */
++    if (getenv("WINE_WAYLAND_NO_POINTER") && atoi(getenv("WINE_WAYLAND_NO_POINTER")))
++        caps &= ~WL_SEAT_CAPABILITY_POINTER;
++
+     if ((caps & WL_SEAT_CAPABILITY_POINTER) && !process_wayland.pointer.wl_pointer)
+         wayland_pointer_init(wl_seat_get_pointer(seat));
+     else if (!(caps & WL_SEAT_CAPABILITY_POINTER) && process_wayland.pointer.wl_pointer)
 diff --git a/dlls/winewayland.drv/wayland_output.c b/dlls/winewayland.drv/wayland_output.c
 index 203a415..77d80fa 100644
 --- a/dlls/winewayland.drv/wayland_output.c
