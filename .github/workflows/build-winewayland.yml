@@ -65,6 +65,12 @@ jobs:
             echo "== $f"; patch -Np1 --no-backup-if-mismatch < "$f"
           done
 
+      - name: Dump win32u/vulkan.c (diagnostic)
+        run: |
+          cd wine
+          echo "=====BEGIN vulkan.c"; cat dlls/win32u/vulkan.c; echo "=====END vulkan.c"
+          echo "=====BEGIN client_surface"; grep -rn "struct client_surface_funcs" -A25 dlls/win32u/*.h include/ntuser.h 2>/dev/null | head -80; echo "=====END client_surface"
+
       - name: Générer configure
         run: |
           cd wine
