@@ -108,7 +108,7 @@ index a16fc4f..70f0690 100644
      NtUserGetCursorPos(&cursor_pos);
      hwnd = NtUserGetForegroundWindow();
 diff --git a/dlls/winewayland.drv/wayland_surface.c b/dlls/winewayland.drv/wayland_surface.c
-index 4226912..169f65d 100644
+index 4226912..f2b2e34 100644
 --- a/dlls/winewayland.drv/wayland_surface.c
 +++ b/dlls/winewayland.drv/wayland_surface.c
 @@ -41,6 +41,8 @@
@@ -211,7 +211,7 @@ index 4226912..169f65d 100644
  
      TRACE("hwnd=%p pos=%d,%d\n", surface->hwnd, point.x, point.y);
      wl_subsurface_set_position(surface->wl_subsurface, point.x, point.y);
-@@ -2654,6 +2681,27 @@ static BOOL wayland_surface_reconfigure_client(struct wayland_surface *surface,
+@@ -2654,6 +2681,29 @@ static BOOL wayland_surface_reconfigure_client(struct wayland_surface *surface,
      /* The offset of the client area origin relatively to the window origin. */
      OffsetRect(&rect, window->client_rect.left - window->rect.left,
                 window->client_rect.top - window->rect.top);
@@ -225,7 +225,9 @@ index 4226912..169f65d 100644
 +        {
 +            c = clip;
 +            OffsetRect(&c, -window->client_rect.left, -window->client_rect.top);
-+            if (IntersectRect(&c, &c, &cr) && !EqualRect(&c, &cr) &&
++            c.left = max(c.left, cr.left); c.top = max(c.top, cr.top);
++            c.right = min(c.right, cr.right); c.bottom = min(c.bottom, cr.bottom);
++            if (!IsRectEmpty(&c) && !EqualRect(&c, &cr) &&
 +                ((c.top == cr.top && c.bottom == cr.bottom) ||
 +                 (c.left == cr.left && c.right == cr.right)))
 +            {
@@ -239,7 +241,7 @@ index 4226912..169f65d 100644
      rect = map_rect_to_surface(surface, rect);
  
      TRACE("hwnd=%p rect=%s\n", surface->hwnd, wine_dbgstr_rect(&rect));
-@@ -4576,6 +4624,88 @@ failed:
+@@ -4576,6 +4626,88 @@ failed:
      return NULL;
  }
  
@@ -328,7 +330,7 @@ index 4226912..169f65d 100644
  /**********************************************************************
   *          map_rect_to_surface
   *
-@@ -4583,11 +4713,18 @@ failed:
+@@ -4583,11 +4715,18 @@ failed:
   */
  RECT map_rect_to_surface(struct wayland_surface *surface, RECT rect)
  {
@@ -352,7 +354,7 @@ index 4226912..169f65d 100644
  }
  
  /**********************************************************************
-@@ -4597,11 +4734,30 @@ RECT map_rect_to_surface(struct wayland_surface *surface, RECT rect)
+@@ -4597,11 +4736,30 @@ RECT map_rect_to_surface(struct wayland_surface *surface, RECT rect)
   */
  POINT map_point_to_surface(struct wayland_surface *surface, POINT point)
  {
@@ -385,7 +387,7 @@ index 4226912..169f65d 100644
  /**********************************************************************
   *          map_rect_from_surface
   *
-@@ -4609,11 +4765,27 @@ POINT map_point_to_surface(struct wayland_surface *surface, POINT point)
+@@ -4609,11 +4767,27 @@ POINT map_point_to_surface(struct wayland_surface *surface, POINT point)
   */
  RECT map_rect_from_surface(struct wayland_surface *surface, RECT rect)
  {
@@ -418,7 +420,7 @@ index 4226912..169f65d 100644
  }
  
  /**********************************************************************
-@@ -4623,11 +4795,34 @@ RECT map_rect_from_surface(struct wayland_surface *surface, RECT rect)
+@@ -4623,11 +4797,34 @@ RECT map_rect_from_surface(struct wayland_surface *surface, RECT rect)
   */
  POINT map_point_from_surface(struct wayland_surface *surface, POINT point)
  {
@@ -455,7 +457,7 @@ index 4226912..169f65d 100644
  void wayland_surface_coords_from_window(struct wayland_surface *surface,
                                          int window_x, int window_y,
                                          int *surface_x, int *surface_y)
-@@ -5107,6 +5302,8 @@ struct wayland_client_surface *wayland_client_surface_create(HWND hwnd)
+@@ -5107,6 +5304,8 @@ struct wayland_client_surface *wayland_client_surface_create(HWND hwnd)
          goto err;
      }
      wl_surface_set_user_data(client->wl_surface, hwnd);
