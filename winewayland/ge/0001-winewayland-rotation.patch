@@ -69,7 +69,7 @@ index 203a415..77d80fa 100644
      output->pending.logical_h = height;
      output->pending.flags |= WAYLAND_OUTPUT_LOGICAL_WH;
 diff --git a/dlls/winewayland.drv/wayland_pointer.c b/dlls/winewayland.drv/wayland_pointer.c
-index a16fc4f..70f0690 100644
+index a16fc4f..b48a4a4 100644
 --- a/dlls/winewayland.drv/wayland_pointer.c
 +++ b/dlls/winewayland.drv/wayland_pointer.c
 @@ -491,8 +491,7 @@ static void wayland_motion_delta_to_window(struct wayland_surface *surface,
@@ -82,7 +82,33 @@ index a16fc4f..70f0690 100644
  }
  
  /* Some compositors seem to have broken rawinput so allow users to disable/adjust sensitivity */
-@@ -1158,17 +1157,23 @@ BOOL WAYLAND_SetCursorPos(INT x, INT y)
+@@ -535,14 +534,20 @@ static void relative_pointer_v1_relative_motion(void *private,
+                                    wl_fixed_to_double(dx),
+                                    wl_fixed_to_double(dy),
+                                    &screen_x, &screen_y);
+-    wayland_win_data_release(data);
+-
+     if (scale > 0.0)
+     {
+-        raw_x = wl_fixed_to_double(dx_unaccel) * scale;
+-        raw_y = wl_fixed_to_double(dy_unaccel) * scale;
++        /* les deltas bruts doivent aussi suivre la rotation de l'écran
++         * (sinon la souris relative est tournée de 90 degrés) */
++        double ws = data->wayland_surface->window.scale;
++        map_delta_from_surface(data->wayland_surface,
++                               wl_fixed_to_double(dx_unaccel) * scale,
++                               wl_fixed_to_double(dy_unaccel) * scale,
++                               &raw_x, &raw_y);
++        if (ws > 0.0) { raw_x /= ws; raw_y /= ws; }
+     }
+-    else
++    wayland_win_data_release(data);
++
++    if (scale <= 0.0)
+     {
+         raw_x = screen_x;
+         raw_y = screen_y;
+@@ -1158,17 +1163,23 @@ BOOL WAYLAND_SetCursorPos(INT x, INT y)
          if (wl_surface)
          {
              pthread_mutex_lock(&pointer->mutex);
@@ -115,7 +141,7 @@ index a16fc4f..70f0690 100644
          }
      }
  
-@@ -1185,6 +1190,27 @@ BOOL WAYLAND_SetCursorPos(INT x, INT y)
+@@ -1185,6 +1196,27 @@ BOOL WAYLAND_SetCursorPos(INT x, INT y)
  /***********************************************************************
   *	     WAYLAND_ClipCursor
   */
@@ -143,7 +169,7 @@ index a16fc4f..70f0690 100644
  BOOL WAYLAND_ClipCursor(const RECT *clip, BOOL reset)
  {
      struct wayland_pointer *pointer = &process_wayland.pointer;
-@@ -1196,6 +1222,7 @@ BOOL WAYLAND_ClipCursor(const RECT *clip, BOOL reset)
+@@ -1196,6 +1228,7 @@ BOOL WAYLAND_ClipCursor(const RECT *clip, BOOL reset)
      POINT cursor_pos, warp;
  
      TRACE("clip=%s reset=%d\n", wine_dbgstr_rect(clip), reset);
