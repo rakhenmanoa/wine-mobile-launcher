@@ -591,7 +591,7 @@ index 4226912..b13506d 100644
          if (stack_above_parent)
              wayland_surface_attach_opaque_carrier(surface);
 diff --git a/dlls/winewayland.drv/wayland_touch.c b/dlls/winewayland.drv/wayland_touch.c
-index e9a57f7..a9272ee 100644
+index e9a57f7..3ac1a6e 100644
 --- a/dlls/winewayland.drv/wayland_touch.c
 +++ b/dlls/winewayland.drv/wayland_touch.c
 @@ -28,8 +28,10 @@
@@ -605,7 +605,7 @@ index e9a57f7..a9272ee 100644
  
  static LPARAM map_point_vscreen(double x, double y)
  {
-@@ -53,8 +55,68 @@ static void wayland_touch_point_to_window(struct wayland_surface *surface,
+@@ -53,8 +55,76 @@ static void wayland_touch_point_to_window(struct wayland_surface *surface,
                                            double surface_x, double surface_y,
                                            double *window_x, double *window_y)
  {
@@ -647,6 +647,14 @@ index e9a57f7..a9272ee 100644
 +}
 +
 +
++/* WINE_WAYLAND_TOUCH_NATIVE=0 : ne pas envoyer les messages tactiles (WM_POINTER) à Wine ;
++ * à combiner avec WINE_WAYLAND_TOUCH_MOUSE=1 pour que le doigt n'émule qu'une souris. */
++static BOOL touch_native_enabled(void)
++{
++    const char *e = getenv("WINE_WAYLAND_TOUCH_NATIVE");
++    return !e || atoi(e) != 0;
++}
++
 +static int touch_mouse_emul_id = -1;
 +
 +static BOOL touch_mouse_emulation_enabled(void)
@@ -676,7 +684,7 @@ index e9a57f7..a9272ee 100644
  }
  
  static void touch_handle_down(void *private, struct wl_touch *wl_touch,
-@@ -66,10 +128,12 @@ static void touch_handle_down(void *private, struct wl_touch *wl_touch,
+@@ -66,10 +136,12 @@ static void touch_handle_down(void *private, struct wl_touch *wl_touch,
      struct wayland_touch_point *point = NULL;
      struct wayland_win_data *data = NULL;
      struct wayland_surface *surface;
@@ -690,7 +698,7 @@ index e9a57f7..a9272ee 100644
      if (!wl_surface) return;
  
      InterlockedExchange(&process_wayland.input_serial, serial);
-@@ -86,9 +150,16 @@ static void touch_handle_down(void *private, struct wl_touch *wl_touch,
+@@ -86,9 +158,16 @@ static void touch_handle_down(void *private, struct wl_touch *wl_touch,
                                    wl_fixed_to_double(y),
                                    &touch_x, &touch_y);
      point->xy = map_point_vscreen(touch_x, touch_y);
@@ -708,10 +716,12 @@ index e9a57f7..a9272ee 100644
  
      input.type = INPUT_HARDWARE;
      input.hi.uMsg = WM_POINTERDOWN;
-@@ -98,10 +169,16 @@ static void touch_handle_down(void *private, struct wl_touch *wl_touch,
+@@ -97,11 +176,17 @@ static void touch_handle_down(void *private, struct wl_touch *wl_touch,
+                        POINTER_MESSAGE_FLAG_INCONTACT |
                         POINTER_MESSAGE_FLAG_NEW;
  
-     NtUserSendHardwareInput(hwnd, 0, &input, point->xy);
+-    NtUserSendHardwareInput(hwnd, 0, &input, point->xy);
++    if (touch_native_enabled()) NtUserSendHardwareInput(hwnd, 0, &input, point->xy);
 +    if (touch_mouse_emul_id < 0 && touch_mouse_emulation_enabled())
 +    {
 +        touch_mouse_emul_id = id;
@@ -725,10 +735,12 @@ index e9a57f7..a9272ee 100644
      if (data) wayland_win_data_release(data);
  }
  
-@@ -141,6 +218,11 @@ static void touch_handle_up(void *private, struct wl_touch *wl_touch,
+@@ -140,7 +225,12 @@ static void touch_handle_up(void *private, struct wl_touch *wl_touch,
+ 
      TRACE("hwnd=%p id=%d\n", point->focused_hwnd, id);
  
-     NtUserSendHardwareInput(point->focused_hwnd, 0, &input, point->xy);
+-    NtUserSendHardwareInput(point->focused_hwnd, 0, &input, point->xy);
++    if (touch_native_enabled()) NtUserSendHardwareInput(point->focused_hwnd, 0, &input, point->xy);
 +    if (touch_mouse_emul_id == id)
 +    {
 +        touch_send_mouse(point->focused_hwnd, point->xy, MOUSEEVENTF_LEFTUP);
@@ -737,7 +749,7 @@ index e9a57f7..a9272ee 100644
      free(point);
  }
  
-@@ -175,7 +257,7 @@ static void touch_handle_motion(void *private, struct wl_touch *wl_touch,
+@@ -175,7 +265,7 @@ static void touch_handle_motion(void *private, struct wl_touch *wl_touch,
      point->xy = map_point_vscreen(touch_x, touch_y);
      wayland_win_data_release(data);
  
@@ -746,18 +758,22 @@ index e9a57f7..a9272ee 100644
  
      TRACE("hwnd=%p pos=(%lf,%lf)\n", point->focused_hwnd, touch_x, touch_y);
  
-@@ -186,6 +268,7 @@ static void touch_handle_motion(void *private, struct wl_touch *wl_touch,
+@@ -185,7 +275,8 @@ static void touch_handle_motion(void *private, struct wl_touch *wl_touch,
+     input.hi.wParamH = POINTER_MESSAGE_FLAG_INRANGE |
                         POINTER_MESSAGE_FLAG_INCONTACT;
  
-     NtUserSendHardwareInput(point->focused_hwnd, 0, &input, point->xy);
+-    NtUserSendHardwareInput(point->focused_hwnd, 0, &input, point->xy);
++    if (touch_native_enabled()) NtUserSendHardwareInput(point->focused_hwnd, 0, &input, point->xy);
 +    if (touch_mouse_emul_id == id) touch_send_mouse(point->focused_hwnd, point->xy, 0);
  }
  
  static void touch_handle_frame(void *private, struct wl_touch *wl_touch) { }
-@@ -208,6 +291,11 @@ static void touch_handle_cancel(void *private, struct wl_touch *wl_touch)
+@@ -207,7 +298,12 @@ static void touch_handle_cancel(void *private, struct wl_touch *wl_touch)
+     {
          input.hi.wParamL = point->id;
  
-         NtUserSendHardwareInput(point->focused_hwnd, 0, &input, point->xy);
+-        NtUserSendHardwareInput(point->focused_hwnd, 0, &input, point->xy);
++        if (touch_native_enabled()) NtUserSendHardwareInput(point->focused_hwnd, 0, &input, point->xy);
 +        if (touch_mouse_emul_id == point->id)
 +        {
 +            touch_send_mouse(point->focused_hwnd, point->xy, MOUSEEVENTF_LEFTUP);
@@ -766,7 +782,7 @@ index e9a57f7..a9272ee 100644
          wl_list_remove(&point->link);
          free(point);
      }
-@@ -225,6 +313,7 @@ void wayland_touch_init(struct wl_touch *wl_touch)
+@@ -225,6 +321,7 @@ void wayland_touch_init(struct wl_touch *wl_touch)
  {
      struct wayland_touch *touch = &process_wayland.touch;
  
