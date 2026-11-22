@@ -1,0 +1,79 @@
+--- a/dlls/win32u/vulkan.c
++++ b/dlls/win32u/vulkan.c
+@@ -3820,10 +3820,26 @@
+     return vk_device->p_vkSetLatencySleepModeNV(vk_device->host.device, vk_swapchain->obj.host.swapchain, &sleep_mode_info_host);
+ }
+ 
++/* WINE_FULLSCREEN_FORCE_FSHACK=1 : use the fullscreen hack path (and so the FSR upscaler with
++ * WINE_FULLSCREEN_FSR=1) even when the game did not change the display mode, the swapchain being
++ * scaled to the window size by the compute shaders. */
++static BOOL force_fshack(void)
++{
++    static int force = -1;
++    if (force < 0)
++    {
++        const char *e = getenv( "WINE_FULLSCREEN_FORCE_FSHACK" );
++        force = e && strcmp( e, "0" );
++    }
++    return force;
++}
++
+ static BOOL surface_get_fshack_dpi( struct surface *surface )
+ {
+     UINT dpi = NtUserGetDpiForWindow( surface->hwnd ), raw = NtUserGetWinMonitorDpi( surface->hwnd, MDT_RAW_DPI );
+-    return fshack_enabled && dpi != raw ? raw : 0;
++    if (!fshack_enabled) return 0;
++    if (dpi != raw) return raw;
++    return force_fshack() ? (raw ? raw : 96) : 0;
+ }
+ 
+ /* Cross-process producer helpers. */
+@@ -5242,7 +5258,27 @@
+         swapchain->upscaler.fsr.lite = lite;
+         swapchain->upscaler.fsr.sharpness = sharpness;
+         swapchain->host_extents = capabilities.minImageExtent;
+-        create_info_host.imageExtent = capabilities.minImageExtent;
++        /* The host surface (e.g. Wayland) reports a minimum extent of 1x1 : with the forced hack the
++         * scaler output is the window's client size, fitted to the game's aspect ratio when
++         * WINE_WAYLAND_KEEP_ASPECT is set (same rectangle as the display driver's). */
++        if (force_fshack() &&
++            get_swapchain_surface_rect( surface->hwnd, &client_rect, NtUserGetWinMonitorDpi( surface->hwnd, MDT_WINE_RAW_DPI ) ))
++        {
++            const char *ka = getenv( "WINE_WAYLAND_KEEP_ASPECT" );
++            uint32_t cw = client_rect.right - client_rect.left, ch = client_rect.bottom - client_rect.top;
++            uint32_t w = cw, h = ch;
++            if (ka && strcmp( ka, "0" ) && create_info->imageExtent.width && create_info->imageExtent.height &&
++                (uint64_t)cw * create_info->imageExtent.height > (uint64_t)ch * create_info->imageExtent.width)
++                w = ((uint64_t)ch * create_info->imageExtent.width + create_info->imageExtent.height / 2) / create_info->imageExtent.height;
++            else if (ka && strcmp( ka, "0" ) && create_info->imageExtent.width && create_info->imageExtent.height &&
++                     (uint64_t)cw * create_info->imageExtent.height < (uint64_t)ch * create_info->imageExtent.width)
++                h = ((uint64_t)cw * create_info->imageExtent.height + create_info->imageExtent.width / 2) / create_info->imageExtent.width;
++            swapchain->host_extents.width = w;
++            swapchain->host_extents.height = h;
++            FIXME( "forced fshack: game %ux%u client %ux%u -> host %ux%u\n", (unsigned)create_info->imageExtent.width,
++                   (unsigned)create_info->imageExtent.height, cw, ch, w, h );
++        }
++        create_info_host.imageExtent = swapchain->host_extents;
+         create_info_host.imageFormat = swapchain->upscaler.is_fsr ? VK_FORMAT_B8G8R8A8_SRGB: VK_FORMAT_B8G8R8A8_UNORM;
+         create_info_host.imageUsage = VK_IMAGE_USAGE_STORAGE_BIT;
+ 
+@@ -5263,7 +5299,9 @@
+      * itself), so that it can keep the aspect ratio when it scales the surface (WINE_WAYLAND_KEEP_ASPECT). */
+     {
+         static const WCHAR extent_prop[] = {'_','_','w','i','n','e','_','v','k','_','e','x','t','e','n','t',0};
+-        ULONG_PTR v = swapchain->fshack_dpi ? 0 :
++        /* with the forced hack the driver still needs the size (it shrinks the surface to the fitted
++         * rectangle and the shaders then scale the game image to it) */
++        ULONG_PTR v = (swapchain->fshack_dpi && !force_fshack()) ? 0 :
+             ((ULONG_PTR)create_info->imageExtent.width | ((ULONG_PTR)create_info->imageExtent.height << 16));
+         FIXME( "swapchain: fshack_dpi=%u owner=%d image=%ux%u min=%ux%u\n", (unsigned)swapchain->fshack_dpi,
+                presentation_owner, (unsigned)create_info->imageExtent.width, (unsigned)create_info->imageExtent.height,
+@@ -8115,6 +8153,8 @@
+ 
+     const char *env = getenv( "WINE_DISABLE_FULLSCREEN_HACK" );
+     fshack_enabled = !env || !atoi( env );
++    /* Proton sets WINE_DISABLE_FULLSCREEN_HACK=1 with the Wayland driver : forcing wins. */
++    if (force_fshack()) fshack_enabled = 1;
+ 
+ #ifdef SONAME_LIBVULKAN
+     vulkan_handle = dlopen( SONAME_LIBVULKAN, RTLD_NOW );

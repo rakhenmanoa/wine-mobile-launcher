@@ -32,6 +32,8 @@ Kirigami.ScrollablePage {
             zinkCheck.checked = g.zink
             waylandCheck.checked = g.wayland
             touchMouseCheck.checked = g.touchMouse
+            fsrCheck.checked = g.fsr
+            maxHeightBox.currentIndex = Math.max(0, maxHeightBox.values.indexOf(g.maxHeight))
         }
         loaded = true
     }
@@ -72,13 +74,15 @@ Kirigami.ScrollablePage {
                                    argsField.text, prefixField.text, wineField.text,
                                    protonField.text, iconField.text, mangohudCheck.checked,
                                    fullscreenCheck.checked, gamepadCheck.checked, zinkCheck.checked,
-                                   waylandCheck.checked, touchMouseCheck.checked)
+                                   waylandCheck.checked, touchMouseCheck.checked, fsrCheck.checked,
+                                   maxHeightBox.values[maxHeightBox.currentIndex])
         } else {
             GameManager.addGame(nameField.text, exeField.text, argsField.text,
                                 prefixField.text, wineField.text, protonField.text,
                                 iconField.text, mangohudCheck.checked,
                                 fullscreenCheck.checked, gamepadCheck.checked, zinkCheck.checked,
-                                   waylandCheck.checked, touchMouseCheck.checked)
+                                   waylandCheck.checked, touchMouseCheck.checked, fsrCheck.checked,
+                                   maxHeightBox.values[maxHeightBox.currentIndex])
         }
         if (closePage)
             applicationWindow().pageStack.layers.clear()
@@ -300,6 +304,43 @@ Kirigami.ScrollablePage {
                 wrapMode: Text.WordWrap
                 opacity: 0.8
                 text: "Le premier doigt déplace le curseur et clique (WINE_WAYLAND_TOUCH_MOUSE). Utile pour les jeux qui n'écoutent que la souris. Nécessite le pilote Wayland."
+            }
+
+            QQC2.Label {
+                text: "Résolution maximale vue par le jeu"
+                Layout.fillWidth: true
+            }
+
+            QQC2.ComboBox {
+                id: maxHeightBox
+                readonly property var values: [0, 1080, 900, 720, 576, 480, 407]
+                enabled: waylandCheck.checked
+                Layout.fillWidth: true
+                model: ["Aucune limite", "1080p", "900p", "720p", "576p", "480p", "407p (taille logique Plasma, 1/3)"]
+                onActivated: root.scheduleSave()
+            }
+
+            QQC2.Label {
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                opacity: 0.8
+                text: "Plafonne la résolution d'écran annoncée à Wine (côté court, mêmes proportions : WINE_WAYLAND_MAX_HEIGHT). Les jeux qui prennent la résolution de l'écran rendent plus petit ; l'image est ensuite agrandie. Nécessite le winewayland.so modifié."
+            }
+
+            QQC2.CheckBox {
+                id: fsrCheck
+                onToggled: root.scheduleSave()
+
+                enabled: waylandCheck.checked
+                Layout.fillWidth: true
+                text: "Agrandissement FSR"
+            }
+
+            QQC2.Label {
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                opacity: 0.8
+                text: "Si tu baisses la résolution du jeu, l'image est agrandie en FSR 1 (plus net qu'un simple étirement) : WINE_FULLSCREEN_FORCE_FSHACK + WINE_FULLSCREEN_FSR. Nécessite le win32u.so modifié et le pilote Wayland ; sans effet à la résolution native."
             }
 
             QQC2.CheckBox {
