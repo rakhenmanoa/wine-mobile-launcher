@@ -227,6 +227,10 @@ void VirtualGamepad::setInputMask(QWindow *window, const QVariantList &rects)
                         qRound(map.value(QStringLiteral("w")).toDouble()),
                         qRound(map.value(QStringLiteral("h")).toDouble()));
     }
+    // Un masque vide = pas de masque pour Qt (toute la fenêtre capte les touches) : on garde
+    // alors un carré de 1 px pour que le reste de l'écran traverse l'overlay.
+    if (region.isEmpty())
+        region = QRegion(0, 0, 1, 1);
     window->setMask(region);
 }
 

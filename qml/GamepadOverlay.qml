@@ -51,7 +51,7 @@ Window {
         const rects = []
         for (let i = 0; i < content.children.length; ++i) {
             const c = content.children[i]
-            if (!c.touchZone || !c.visible)
+            if (!c.touchZone)
                 continue
             const r = c.mapRectToItem(null, 0, 0, c.width, c.height)
             rects.push({x: r.x, y: r.y, w: r.width, h: r.height})
@@ -60,6 +60,11 @@ Window {
     }
     onWidthChanged: Qt.callLater(updateMask)
     onHeightChanged: Qt.callLater(updateMask)
+
+    // La fenêtre layer-shell reçoit sa taille et les positions des contrôles après coup : on
+    // recalcule le masque (zone qui capte les touches) quelques fois au démarrage.
+    Timer { interval: 300; running: true; onTriggered: win.updateMask() }
+    Timer { interval: 1500; running: true; onTriggered: win.updateMask() }
 
     Rectangle {
         anchors.fill: parent
@@ -454,7 +459,7 @@ Window {
 
         Column {
             id: toolbar
-            property bool touchZone: true
+            property bool touchZone: win.editMode
             visible: win.editMode
             z: 20
             spacing: win.unit * 0.15
