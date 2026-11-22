@@ -253,8 +253,12 @@ void GameManager::setGamepadGame(const QString &gameId, bool active, int rotatio
             m_overlayProcess->deleteLater();
             m_overlayProcess = nullptr;
         });
-        m_overlayProcess->start(QCoreApplication::applicationFilePath(),
-                                {QStringLiteral("--gamepad-overlay"), QString::number(rotation)});
+        QStringList overlayArgs{QStringLiteral("--gamepad-overlay"), QString::number(rotation)};
+        if (m_gamepadEditOnLaunch) {
+            overlayArgs << QStringLiteral("--edit");
+            setGamepadEditOnLaunch(false);
+        }
+        m_overlayProcess->start(QCoreApplication::applicationFilePath(), overlayArgs);
     } else if (!active && m_gamepadGames.isEmpty() && m_overlayProcess) {
         m_gamepadGames.clear();
         m_overlayProcess->terminate();
@@ -262,6 +266,32 @@ void GameManager::setGamepadGame(const QString &gameId, bool active, int rotatio
 
     if (wasActive != gamepadActive())
         Q_EMIT gamepadActiveChanged();
+}
+
+void GameManager::editGamepadLayout()
+{
+    if (m_editProcess)
+        return;
+    const QString direction = qEnvironmentVariable("WML_ROTATION", QStringLiteral("right"));
+    const int rotation = direction == QLatin1String("left") ? 270
+                       : direction == QLatin1String("inverted") ? 180 : 90;
+    m_editProcess = new QProcess(this);
+    m_editProcess->setProcessChannelMode(QProcess::MergedChannels);
+    connect(m_editProcess, &QProcess::finished, this, [this](int, QProcess::ExitStatus) {
+        m_editProcess->deleteLater();
+        m_editProcess = nullptr;
+    });
+    m_editProcess->start(QCoreApplication::applicationFilePath(),
+                         {QStringLiteral("--gamepad-overlay"), QString::number(rotation),
+                          QStringLiteral("--standalone")});
+}
+
+void GameManager::setGamepadEditOnLaunch(bool on)
+{
+    if (m_gamepadEditOnLaunch == on)
+        return;
+    m_gamepadEditOnLaunch = on;
+    Q_EMIT gamepadEditOnLaunchChanged();
 }
 
 void GameManager::saveLibrary()

@@ -3,6 +3,7 @@
 #include <QObject>
 #include <QString>
 #include <QVariantList>
+#include <QVariantMap>
 
 class QWindow;
 
@@ -35,6 +36,12 @@ public:
     Q_INVOKABLE void axis(int code, double value);
     // Bouton Home : retour à l'accueil de Plasma (Afficher le bureau), le jeu continue.
     Q_INVOKABLE void goHome();
+    // Disposition personnalisée des boutons (fichier JSON partagé avec le lanceur) :
+    // { "scale": 1.0, "<contrôle>": { "x": 0..1, "y": 0..1 } } (centre du contrôle,
+    // en fraction de l'écran de jeu).
+    Q_INVOKABLE QVariantMap loadLayout() const;
+    Q_INVOKABLE void saveLayout(const QVariantMap &layout) const;
+    static QString layoutPath();
 
     // Fenêtre de l'overlay : à appeler avant son premier affichage
     // (layer-shell : couche « overlay », sans prise de focus, plein écran).
