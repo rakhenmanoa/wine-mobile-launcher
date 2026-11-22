@@ -862,6 +862,8 @@ void GameManager::launchGame(int row)
                 }
                 if (waylandRotation)
                     gameEnv.insert(QStringLiteral("WINE_WAYLAND_ROTATE"), QString::number(waylandRotation));
+                // Garde les proportions de l'image quand le jeu change de résolution
+                gameEnv.insert(QStringLiteral("WINE_WAYLAND_KEEP_ASPECT"), QStringLiteral("1"));
             }
             if (game.touchMouse)
                 gameEnv.insert(QStringLiteral("WINE_WAYLAND_TOUCH_MOUSE"), QStringLiteral("1"));
