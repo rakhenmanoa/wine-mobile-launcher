@@ -23,6 +23,8 @@ struct WineGame {
     bool fullscreen = false;
     bool zink = false; // OpenGL (wined3d) via Zink : GL traduit en Vulkan
     bool gamepad = false; // manette à l'écran (manette virtuelle uinput)
+    bool wayland = false; // pilote Wayland de Wine (rotation sans sway)
+    bool touchMouse = false; // tactile émulé en souris (pilote Wayland)
     qint64 lastPlayed = 0;
 };
 
@@ -45,6 +47,8 @@ public:
         FullscreenRole,
         GamepadRole,
         ZinkRole,
+        WaylandRole,
+        TouchMouseRole,
         LastPlayedRole,
         RunningRole
     };

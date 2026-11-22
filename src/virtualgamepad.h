@@ -33,6 +33,8 @@ public:
     Q_INVOKABLE void button(int code, bool pressed);
     // valeur normalisée : sticks et hat -1..1, gâchettes 0..1
     Q_INVOKABLE void axis(int code, double value);
+    // Bouton Home : retour à l'accueil de Plasma (Afficher le bureau), le jeu continue.
+    Q_INVOKABLE void goHome();
 
     // Fenêtre de l'overlay : à appeler avant son premier affichage
     // (layer-shell : couche « overlay », sans prise de focus, plein écran).

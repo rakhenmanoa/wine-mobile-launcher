@@ -30,6 +30,8 @@ Kirigami.ScrollablePage {
             fullscreenCheck.checked = g.fullscreen
             gamepadCheck.checked = g.gamepad
             zinkCheck.checked = g.zink
+            waylandCheck.checked = g.wayland
+            touchMouseCheck.checked = g.touchMouse
         }
         loaded = true
     }
@@ -69,12 +71,14 @@ Kirigami.ScrollablePage {
             GameManager.updateGame(root.gameIndex, nameField.text, exeField.text,
                                    argsField.text, prefixField.text, wineField.text,
                                    protonField.text, iconField.text, mangohudCheck.checked,
-                                   fullscreenCheck.checked, gamepadCheck.checked, zinkCheck.checked)
+                                   fullscreenCheck.checked, gamepadCheck.checked, zinkCheck.checked,
+                                   waylandCheck.checked, touchMouseCheck.checked)
         } else {
             GameManager.addGame(nameField.text, exeField.text, argsField.text,
                                 prefixField.text, wineField.text, protonField.text,
                                 iconField.text, mangohudCheck.checked,
-                                fullscreenCheck.checked, gamepadCheck.checked, zinkCheck.checked)
+                                fullscreenCheck.checked, gamepadCheck.checked, zinkCheck.checked,
+                                   waylandCheck.checked, touchMouseCheck.checked)
         }
         if (closePage)
             applicationWindow().pageStack.layers.clear()
@@ -108,7 +112,16 @@ Kirigami.ScrollablePage {
             visible: false
         }
 
+        QQC2.TabBar {
+            id: tabs
+
+            Layout.fillWidth: true
+            QQC2.TabButton { text: "Général" }
+            QQC2.TabButton { text: "Affichage et graphisme" }
+        }
+
         Kirigami.FormLayout {
+            visible: tabs.currentIndex === 0
             wideMode: false
             Layout.fillWidth: true
 
@@ -212,51 +225,6 @@ Kirigami.ScrollablePage {
                 text: "Overlay MangoHud (FPS, CPU/GPU)"
             }
 
-            QQC2.CheckBox {
-                id: fullscreenCheck
-                onToggled: root.scheduleSave()
-
-                Layout.fillWidth: true
-                text: "Démarrer en plein écran (paysage)"
-            }
-
-            QQC2.Label {
-                Layout.fillWidth: true
-                wrapMode: Text.WordWrap
-                opacity: 0.8
-                text: "Plein écran paysage : le jeu tourne dans un sway imbriqué (pacman -S sway) dont la sortie est pivotée de 90° — seul le jeu est pivoté, pas l'écran du système. Il démarre en fenêtré, puis le launcher le passe en plein écran via KWin (qdbus6, paquet qt6-tools). Sans sway : bureau virtuel Wine, passé en plein écran de la même façon, sans rotation d'image."
-            }
-
-            QQC2.CheckBox {
-                id: zinkCheck
-
-                Layout.fillWidth: true
-                text: "OpenGL via Zink (Vulkan)"
-                onToggled: root.scheduleSave()
-            }
-
-            QQC2.Label {
-                Layout.fillWidth: true
-                wrapMode: Text.WordWrap
-                opacity: 0.8
-                text: "Pour les jeux OpenGL : Mesa traduit OpenGL en Vulkan (MESA_LOADER_DRIVER_OVERRIDE=zink). Les jeux D3D passent déjà par DXVK/vkd3d (Vulkan) ; cette option permet d'avoir du Vulkan partout, notamment pour une future rotation de l'image."
-            }
-
-            QQC2.CheckBox {
-                id: gamepadCheck
-
-                Layout.fillWidth: true
-                text: "Manette à l'écran"
-                onToggled: root.scheduleSave()
-            }
-
-            QQC2.Label {
-                Layout.fillWidth: true
-                wrapMode: Text.WordWrap
-                opacity: 0.8
-                text: "Superpose une manette tactile (sticks, croix, ABXY, L/R/ZL/ZR, −/Home/+) au jeu et la présente à Wine comme une manette Xbox 360 (uinput). Nécessite l'accès à /dev/uinput (règle udev du paquet, puis redémarrage) ; layer-shell-qt est recommandé pour que la manette reste au-dessus du plein écran."
-            }
-
             RowLayout {
                 Kirigami.FormData.label: "Icône :"
                 Layout.fillWidth: true
@@ -278,6 +246,91 @@ Kirigami.ScrollablePage {
                     icon.name: "document-open-folder-symbolic"
                     onClicked: iconDialog.open()
                 }
+            }
+        }
+
+        Kirigami.FormLayout {
+            id: displayForm
+
+            visible: tabs.currentIndex === 1
+            wideMode: false
+            Layout.fillWidth: true
+
+            QQC2.CheckBox {
+                id: fullscreenCheck
+                onToggled: root.scheduleSave()
+
+                Layout.fillWidth: true
+                text: "Démarrer en plein écran (paysage)"
+            }
+
+            QQC2.Label {
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                opacity: 0.8
+                text: "Plein écran paysage : par défaut le jeu tourne dans un sway imbriqué (pacman -S sway) dont la sortie est pivotée de 90° — seul le jeu est pivoté, pas l'écran du système. Avec le pilote Wayland ci-dessous, la rotation est faite par Wine lui-même, sans sway. Sans sway ni Wayland : bureau virtuel Wine, sans rotation d'image. Le jeu démarre en fenêtré, puis le launcher le passe en plein écran via KWin (qdbus6, paquet qt6-tools)."
+            }
+
+            QQC2.CheckBox {
+                id: waylandCheck
+                onToggled: root.scheduleSave()
+
+                Layout.fillWidth: true
+                text: "Pilote Wayland de Wine (sans Xwayland)"
+            }
+
+            QQC2.Label {
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                opacity: 0.8
+                text: "Active PROTON_ENABLE_WAYLAND. Avec le plein écran, l'image est pivotée par Wine (WINE_WAYLAND_ROTATE) : nécessite le winewayland.so modifié dans GE-Proton ; sinon pas de rotation."
+            }
+
+            QQC2.CheckBox {
+                id: touchMouseCheck
+                onToggled: root.scheduleSave()
+
+                enabled: waylandCheck.checked
+                Layout.fillWidth: true
+                text: "Tactile émulé en souris"
+            }
+
+            QQC2.Label {
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                opacity: 0.8
+                text: "Le premier doigt déplace le curseur et clique (WINE_WAYLAND_TOUCH_MOUSE). Utile pour les jeux qui n'écoutent que la souris. Nécessite le pilote Wayland."
+            }
+
+            QQC2.CheckBox {
+                id: zinkCheck
+
+                Layout.fillWidth: true
+                text: "OpenGL via Zink (Vulkan)"
+                onToggled: root.scheduleSave()
+            }
+
+            QQC2.Label {
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                opacity: 0.8
+                text: "Pour les jeux OpenGL : Mesa traduit OpenGL en Vulkan (MESA_LOADER_DRIVER_OVERRIDE=zink). Les jeux D3D passent déjà par DXVK/vkd3d (Vulkan) ; utile avec le pilote Wayland, qui ne gère pas OpenGL en direct."
+            }
+
+            QQC2.CheckBox {
+                id: gamepadCheck
+
+                enabled: fullscreenCheck.checked
+                Layout.fillWidth: true
+                text: "Manette à l'écran"
+                onToggled: root.scheduleSave()
+            }
+
+            QQC2.Label {
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                opacity: 0.8
+                text: "Disponible avec le plein écran. Superpose une manette tactile (sticks, croix, ABXY, L/R/ZL/ZR, −/+) au jeu, vue par Wine comme une manette Xbox 360 (uinput) ; le bouton ⌂ ramène à l'accueil de Plasma. Nécessite l'accès à /dev/uinput (règle udev du paquet, puis redémarrage) ; layer-shell-qt est recommandé."
             }
         }
 

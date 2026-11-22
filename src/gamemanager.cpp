@@ -204,6 +204,8 @@ void GameManager::loadLibrary()
         game.fullscreen = obj.value(QLatin1String("fullscreen")).toBool();
         game.gamepad = obj.value(QLatin1String("gamepad")).toBool();
         game.zink = obj.value(QLatin1String("zink")).toBool();
+        game.wayland = obj.value(QLatin1String("wayland")).toBool();
+        game.touchMouse = obj.value(QLatin1String("touchMouse")).toBool();
         game.lastPlayed = static_cast<qint64>(obj.value(QLatin1String("lastPlayed")).toDouble());
         // Migration du cache v2 : les icônes automatiques extraites avant le
         // passage à la grande variante sont re-extraites au démarrage (une
@@ -280,6 +282,8 @@ void GameManager::saveLibrary()
         obj.insert(QLatin1String("fullscreen"), game.fullscreen);
         obj.insert(QLatin1String("gamepad"), game.gamepad);
         obj.insert(QLatin1String("zink"), game.zink);
+        obj.insert(QLatin1String("wayland"), game.wayland);
+        obj.insert(QLatin1String("touchMouse"), game.touchMouse);
         obj.insert(QLatin1String("lastPlayed"), double(game.lastPlayed));
         games.append(obj);
     }
@@ -695,7 +699,8 @@ QString GameManager::extractExeIcon(const WineGame &game, QString *error)
 void GameManager::addGame(const QString &name, const QString &exePath, const QString &args,
                           const QString &prefixPath, const QString &wineBinary,
                           const QString &protonDir, const QString &iconPath, bool mangohud,
-                          bool fullscreen, bool gamepad, bool zink)
+                          bool fullscreen, bool gamepad, bool zink,
+                          bool wayland, bool touchMouse)
 {
     WineGame game;
     game.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
@@ -710,6 +715,8 @@ void GameManager::addGame(const QString &name, const QString &exePath, const QSt
     game.fullscreen = fullscreen;
     game.gamepad = gamepad;
     game.zink = zink;
+    game.wayland = wayland;
+    game.touchMouse = touchMouse;
     // Icône automatique : si l'utilisateur n'a pas choisi d'image, tenter
     // l'extraction depuis l'exécutable (sans effet hors .exe / hors icoutils).
     if (game.iconPath.isEmpty()) {
@@ -733,7 +740,7 @@ void GameManager::updateGame(int row, const QString &name, const QString &exePat
                              const QString &args, const QString &prefixPath,
                              const QString &wineBinary, const QString &protonDir,
                              const QString &iconPath, bool mangohud, bool fullscreen,
-                             bool gamepad, bool zink)
+                             bool gamepad, bool zink, bool wayland, bool touchMouse)
 {
     if (row < 0 || row >= m_model->rowCount())
         return;
@@ -750,6 +757,8 @@ void GameManager::updateGame(int row, const QString &name, const QString &exePat
     game.fullscreen = fullscreen;
     game.gamepad = gamepad;
     game.zink = zink;
+    game.wayland = wayland;
+    game.touchMouse = touchMouse;
     // Icône automatique : extraction si aucune icône n'est définie, ou
     // re-extraction quand l'exécutable a changé et que l'icône actuelle est
     // celle du cache automatique — une image choisie manuellement reste.
@@ -830,6 +839,7 @@ void GameManager::launchGame(int row)
         return;
     }
 
+    int waylandRotation = 0;
     auto *proc = new QProcess(this);
     {
         QProcessEnvironment gameEnv = runnerEnvironment(runner, prefix);
@@ -839,6 +849,26 @@ void GameManager::launchGame(int row)
             gameEnv.insert(QStringLiteral("__GLX_VENDOR_LIBRARY_NAME"), QStringLiteral("mesa"));
             gameEnv.insert(QStringLiteral("GALLIUM_DRIVER"), QStringLiteral("zink"));
             appendLog(QStringLiteral("OpenGL via Zink activé."));
+        }
+        if (game.wayland) {
+            // Pilote Wayland de Wine (Proton) : pas de Xwayland, rotation interne
+            gameEnv.insert(QStringLiteral("PROTON_ENABLE_WAYLAND"), QStringLiteral("1"));
+            if (game.fullscreen) {
+                const QString dir = qEnvironmentVariable("WML_ROTATION", QStringLiteral("right"));
+                if (dir == QLatin1String("left")) {
+                    waylandRotation = 270;
+                } else if (dir != QLatin1String("inverted")) {
+                    waylandRotation = 90;
+                }
+                if (waylandRotation)
+                    gameEnv.insert(QStringLiteral("WINE_WAYLAND_ROTATE"), QString::number(waylandRotation));
+                // Garde les proportions de l'image quand le jeu change de résolution
+                gameEnv.insert(QStringLiteral("WINE_WAYLAND_KEEP_ASPECT"), QStringLiteral("1"));
+            }
+            if (game.touchMouse)
+                gameEnv.insert(QStringLiteral("WINE_WAYLAND_TOUCH_MOUSE"), QStringLiteral("1"));
+            appendLog(QStringLiteral("Pilote Wayland de Wine activé")
+                      + (waylandRotation ? QStringLiteral(" (rotation %1°).").arg(waylandRotation) : QStringLiteral(".")));
         }
         proc->setProcessEnvironment(gameEnv);
     }
@@ -855,7 +885,7 @@ void GameManager::launchGame(int row)
     // passée en plein écran par une règle de fenêtre KWin. Sans sway, repli
     // sur un bureau virtuel Wine paysage, sans rotation de l'image.
     QString swayBinary;
-    if (game.fullscreen) {
+    if (game.fullscreen && !game.wayland) {
         swayBinary = QStandardPaths::findExecutable(QStringLiteral("sway"));
         if (!swayBinary.isEmpty()) {
             appendLog(QStringLiteral("Plein écran (paysage) : jeu lancé dans sway imbriqué, sortie pivotée de 90°."));
@@ -917,8 +947,8 @@ void GameManager::launchGame(int row)
 
     // Manette à l'écran : processus séparé (overlay layer-shell + manette uinput),
     // démarré avant Wine qui énumère les manettes au lancement.
-    if (game.gamepad) {
-        int rotation = 0;
+    if (game.gamepad && game.fullscreen) {
+        int rotation = waylandRotation;
         if (swayWrapped) {
             const QString direction = qEnvironmentVariable("WML_ROTATION", QStringLiteral("right"));
             rotation = direction == QLatin1String("left") ? 270

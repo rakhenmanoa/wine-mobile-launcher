@@ -137,6 +137,7 @@ Window {
             property int code
             property bool touchZone: true
             property bool pressed: false
+            property bool isHome: false
             width: win.unit * 0.95
             height: win.unit * 0.5
             radius: height / 2
@@ -153,9 +154,9 @@ Window {
                 anchors.fill: parent
                 anchors.margins: -win.unit * 0.1
                 maximumTouchPoints: 1
-                onPressed: { sm.pressed = true; pad.button(sm.code, true) }
-                onReleased: { sm.pressed = false; pad.button(sm.code, false) }
-                onCanceled: { sm.pressed = false; pad.button(sm.code, false) }
+                onPressed: { sm.pressed = true; if (!sm.isHome) pad.button(sm.code, true) }
+                onReleased: { sm.pressed = false; if (sm.isHome) pad.goHome(); else pad.button(sm.code, false) }
+                onCanceled: { sm.pressed = false; if (!sm.isHome) pad.button(sm.code, false) }
             }
         }
 
@@ -283,7 +284,7 @@ Window {
         Stick { id: leftStick; axisX: win.absX; axisY: win.absY; x: win.unit * 0.5; y: dpad.y - height - win.unit * 0.3 }
         Stick { id: rightStick; axisX: win.absRX; axisY: win.absRY; x: content.width - width - win.unit * 0.5; y: content.height - height - win.unit * 0.4 }
 
-        // Boutons ABXY (disposition Nintendo : A à droite, B en bas, X en haut, Y à gauche)
+        // Boutons ABXY (disposition Nintendo : A à droite, B en bas, X en haut, Y à gauche ; codes Xbox : A = SOUTH, B = EAST)
         Item {
             id: face
             width: win.unit * 2.9
@@ -292,14 +293,14 @@ Window {
             y: rightStick.y - height - win.unit * 0.2
             readonly property real d: win.unit * 0.95
             PadButton { label: "X"; code: win.btnNorth; x: (face.width - width) / 2; y: 0 }
-            PadButton { label: "B"; code: win.btnSouth; x: (face.width - width) / 2; y: face.height - height }
+            PadButton { label: "B"; code: win.btnEast; x: (face.width - width) / 2; y: face.height - height }
             PadButton { label: "Y"; code: win.btnWest; x: 0; y: (face.height - height) / 2 }
-            PadButton { label: "A"; code: win.btnEast; x: face.width - width; y: (face.height - height) / 2 }
+            PadButton { label: "A"; code: win.btnSouth; x: face.width - width; y: (face.height - height) / 2 }
         }
 
         // − Home +
         SmallButton { label: "−"; code: win.btnSelect; x: content.width / 2 - width * 1.6; y: content.height - height - win.unit * 0.3 }
-        SmallButton { label: "⌂"; code: win.btnMode; x: content.width / 2 - width / 2; y: content.height - height - win.unit * 0.3 }
+        SmallButton { label: "⌂"; code: win.btnMode; isHome: true; x: content.width / 2 - width / 2; y: content.height - height - win.unit * 0.3 }
         SmallButton { label: "+"; code: win.btnStart; x: content.width / 2 + width * 0.6; y: content.height - height - win.unit * 0.3 }
     }
 }
