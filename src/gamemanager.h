@@ -35,6 +35,8 @@ class GameManager : public QObject
     Q_PROPERTY(QString viewMode READ viewMode WRITE setViewMode NOTIFY viewModeChanged)
     // Vrai tant qu'un jeu lancé avec la manette à l'écran tourne
     Q_PROPERTY(bool gamepadActive READ gamepadActive NOTIFY gamepadActiveChanged)
+    // Au prochain lancement d'un jeu avec la manette, l'éditeur de disposition s'ouvre dans le jeu.
+    Q_PROPERTY(bool gamepadEditOnLaunch READ gamepadEditOnLaunch WRITE setGamepadEditOnLaunch NOTIFY gamepadEditOnLaunchChanged)
 
 public:
     explicit GameManager(QObject *parent = nullptr);
@@ -51,6 +53,8 @@ public:
     void setVerboseTerminal(bool verbose);
     QString viewMode() const { return m_viewMode; }
     bool gamepadActive() const { return !m_gamepadGames.isEmpty(); }
+    bool gamepadEditOnLaunch() const { return m_gamepadEditOnLaunch; }
+    void setGamepadEditOnLaunch(bool on);
 
     void setViewMode(const QString &mode);
 
@@ -95,6 +99,7 @@ signals:
     void prefixCreationFinished(const QString &path, bool success, const QString &message);
     void gameLaunched(int row, bool success, const QString &message);
     void gamepadActiveChanged();
+    void gamepadEditOnLaunchChanged();
     void gamepadUnavailable(const QString &message);
 
 private:
@@ -148,6 +153,7 @@ private:
     QString m_defaultPrefixDir;
     bool m_verboseTerminal = false;
     QString m_viewMode;
+    bool m_gamepadEditOnLaunch = false;
     QProcess *m_editProcess = nullptr;    // « --gamepad-overlay --edit » : éditeur de disposition
     QProcess *m_overlayProcess = nullptr; // « --gamepad-overlay » : manette virtuelle + overlay
     QSet<QString> m_gamepadGames; // jeux en cours avec la manette à l'écran

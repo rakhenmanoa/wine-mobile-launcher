@@ -30,9 +30,10 @@ Window {
     // Les contrôles vivent dans un repère « paysage » tourné comme le jeu
     readonly property bool turned: overlayRotation === 90 || overlayRotation === 270
     // Disposition personnalisée : mode édition (lancé depuis la fiche du jeu) ou jeu
-    readonly property bool editMode: overlayEdit
-    readonly property real userScale: content.layout.scale > 0 ? content.layout.scale : 1
-    readonly property real unit: Math.max(48, Math.min(content.width, content.height) / 7) * userScale
+    // overlayEdit : démarre en mode édition ; overlayStandalone : éditeur seul (« Terminer » quitte),
+    // sinon « Terminer » passe en mode jeu (édition au lancement du jeu).
+    property bool editMode: overlayEdit
+    readonly property real unit: Math.max(48, Math.min(content.width, content.height) / 7)
     readonly property var controlList: [dpad, leftStick, rightStick, face, zl, l, zr, r, selectBtn, homeBtn, startBtn]
 
     flags: Qt.FramelessWindowHint | Qt.WindowDoesNotAcceptFocus | Qt.WindowStaysOnTopHint
@@ -77,24 +78,47 @@ Window {
         onHeightChanged: Qt.callLater(win.updateMask)
         Component.onCompleted: Qt.callLater(win.updateMask)
 
-        // Positions personnalisées : { scale, <clé>: {x, y} } (centre du contrôle, 0..1)
+        // Positions et tailles personnalisées : { <clé>: {x, y, s} } (x, y : centre du
+        // contrôle en fraction de l'écran, s : facteur de taille propre au contrôle)
         property var layout: ({})
+        property string selected: ""
         function posX(key, w, def) {
             const p = layout[key]
-            return p ? p.x * width - w / 2 : def
+            return p && p.x !== undefined ? p.x * width - w / 2 : def
         }
         function posY(key, h, def) {
             const p = layout[key]
-            return p ? p.y * height - h / 2 : def
+            return p && p.y !== undefined ? p.y * height - h / 2 : def
+        }
+        function scaleOf(key) {
+            const p = layout[key]
+            return p && p.s > 0 ? p.s : 1
+        }
+        function itemFor(key) {
+            for (let i = 0; i < win.controlList.length; ++i)
+                if (win.controlList[i].key === key)
+                    return win.controlList[i]
+            return null
         }
         function setCenter(key, cx, cy) {
             const l = Object.assign({}, layout)
-            l[key] = { x: Math.max(0, Math.min(1, cx)), y: Math.max(0, Math.min(1, cy)) }
+            l[key] = Object.assign({}, layout[key] || {}, {
+                x: Math.max(0, Math.min(1, cx)), y: Math.max(0, Math.min(1, cy)) })
             layout = l
         }
-        function setScale(v) {
+        // Change la taille du contrôle sélectionné en gardant son centre
+        function setScaleOf(key, v) {
+            const it = itemFor(key)
+            if (!it)
+                return
             const l = Object.assign({}, layout)
-            l.scale = Math.max(0.6, Math.min(1.6, v))
+            const cur = Object.assign({}, l[key] || {})
+            if (cur.x === undefined) {
+                cur.x = (it.x + it.width / 2) / width
+                cur.y = (it.y + it.height / 2) / height
+            }
+            cur.s = Math.max(0.5, Math.min(2, v))
+            l[key] = cur
             layout = l
             commit()
         }
@@ -108,9 +132,10 @@ Window {
             id: btn
             property string label
             property int code
+            property real k: 1
             property bool touchZone: true
             property bool pressed: false
-            width: win.unit * 0.9
+            width: win.unit * 0.9 * k
             height: width
             radius: width / 2
             color: pressed ? "#cc3daee9" : "#66202428"
@@ -143,8 +168,9 @@ Window {
             property int axisCode: -1
             property bool touchZone: true
             property bool pressed: false
-            width: win.unit * 1.5
-            height: win.unit * 0.7
+            readonly property real k: content.scaleOf(key)
+            width: win.unit * 1.5 * k
+            height: win.unit * 0.7 * k
             radius: height / 3
             color: pressed ? "#cc3daee9" : "#66202428"
             border.color: "#aaffffff"
@@ -182,8 +208,9 @@ Window {
             property bool touchZone: true
             property bool pressed: false
             property bool isHome: false
-            width: win.unit * 0.95
-            height: win.unit * 0.5
+            readonly property real k: content.scaleOf(key)
+            width: win.unit * 0.95 * k
+            height: win.unit * 0.5 * k
             radius: height / 2
             color: pressed ? "#cc3daee9" : "#66202428"
             border.color: "#aaffffff"
@@ -213,7 +240,8 @@ Window {
             property string key
             property int thumbCode
             property bool touchZone: true
-            width: win.unit * 2.4
+            readonly property real k: content.scaleOf(key)
+            width: win.unit * 2.4 * k
             height: width
             radius: width / 2
             color: "#44202428"
@@ -265,7 +293,8 @@ Window {
             readonly property string key: "dpad"
             x: content.posX(key, width, win.unit * 0.4)
             y: content.posY(key, height, content.height - height - win.unit * 0.4)
-            width: win.unit * 2.6
+            readonly property real k: content.scaleOf(key)
+            width: win.unit * 2.6 * k
             height: width
             Rectangle {
                 anchors.centerIn: parent
@@ -336,17 +365,18 @@ Window {
         // Boutons ABXY (disposition Nintendo : A à droite, B en bas, X en haut, Y à gauche ; codes Xbox : A = SOUTH, B = EAST)
         Item {
             id: face
-            width: win.unit * 2.9
+            readonly property real k: content.scaleOf(key)
+            width: win.unit * 2.9 * k
             height: width
             readonly property string key: "face"
             property bool touchZone: true
             x: content.posX(key, width, content.width - width - win.unit * 0.4)
             y: content.posY(key, height, rightStick.y - height - win.unit * 0.2)
             readonly property real d: win.unit * 0.95
-            PadButton { label: "X"; code: win.btnNorth; x: (face.width - width) / 2; y: 0 }
-            PadButton { label: "B"; code: win.btnEast; x: (face.width - width) / 2; y: face.height - height }
-            PadButton { label: "Y"; code: win.btnWest; x: 0; y: (face.height - height) / 2 }
-            PadButton { label: "A"; code: win.btnSouth; x: face.width - width; y: (face.height - height) / 2 }
+            PadButton { label: "X"; code: win.btnNorth; k: face.k; x: (face.width - width) / 2; y: 0 }
+            PadButton { label: "B"; code: win.btnEast; k: face.k; x: (face.width - width) / 2; y: face.height - height }
+            PadButton { label: "Y"; code: win.btnWest; k: face.k; x: 0; y: (face.height - height) / 2 }
+            PadButton { label: "A"; code: win.btnSouth; k: face.k; x: face.width - width; y: (face.height - height) / 2 }
         }
 
         // − Home +
@@ -377,15 +407,15 @@ Window {
                     const c = mapToItem(content, p.x, p.y)
                     content.setCenter(modelData.key, (c.x - offX) / content.width, (c.y - offY) / content.height)
                 }
-                onPressed: (points) => start(points[0])
+                onPressed: (points) => { content.selected = modelData.key; start(points[0]) }
                 onUpdated: (points) => drag(points[0])
                 onReleased: content.commit()
                 onCanceled: content.commit()
                 Rectangle {
                     anchors.fill: parent
                     color: "#223daee9"
-                    border.color: "#ffffb300"
-                    border.width: 3
+                    border.color: content.selected === modelData.key ? "#ffffffff" : "#ffffb300"
+                    border.width: content.selected === modelData.key ? 5 : 3
                     radius: 8
                 }
             }
@@ -433,15 +463,15 @@ Window {
                 color: "white"
                 font.bold: true
                 font.pixelSize: win.unit * 0.28
-                text: "Glisse les contrôles pour les placer"
+                text: "Glisse un contrôle pour le placer ; touche-le puis − / + pour sa taille"
             }
             Row {
                 anchors.horizontalCenter: parent.horizontalCenter
                 spacing: win.unit * 0.15
-                EditButton { label: "−"; onClicked: content.setScale(win.userScale - 0.1) }
-                EditButton { label: "+"; onClicked: content.setScale(win.userScale + 0.1) }
-                EditButton { label: "Réinitialiser"; onClicked: { content.layout = ({}); content.commit() } }
-                EditButton { label: "Terminer"; onClicked: Qt.quit() }
+                EditButton { label: "−"; onClicked: if (content.selected !== "") content.setScaleOf(content.selected, content.scaleOf(content.selected) / 1.1) }
+                EditButton { label: "+"; onClicked: if (content.selected !== "") content.setScaleOf(content.selected, content.scaleOf(content.selected) * 1.1) }
+                EditButton { label: "Réinitialiser"; onClicked: { content.selected = ""; content.layout = ({}); content.commit() } }
+                EditButton { label: "Terminer"; onClicked: { content.selected = ""; if (overlayStandalone) Qt.quit(); else { win.editMode = false; Qt.callLater(win.updateMask) } } }
             }
         }
     }

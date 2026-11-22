@@ -15,7 +15,7 @@
 // virtuelle (uinput) et affiche la manette à l'écran dans une couche layer-shell
 // au-dessus des fenêtres plein écran. Séparé du launcher pour que seule cette
 // fenêtre-là soit une surface layer-shell.
-static int runGamepadOverlay(int argc, char *argv[], int rotation, bool editMode)
+static int runGamepadOverlay(int argc, char *argv[], int rotation, bool editMode, bool standalone)
 {
 #ifdef HAVE_LAYERSHELLQT
     LayerShellQt::Shell::useLayerShell();
@@ -26,7 +26,7 @@ static int runGamepadOverlay(int argc, char *argv[], int rotation, bool editMode
     VirtualGamepad pad;
     QString error;
     // Mode édition : pas besoin de manette uinput, on ne fait que déplacer les boutons.
-    if (!editMode && !pad.open(&error)) {
+    if (!standalone && !pad.open(&error)) {
         QTextStream(stderr) << error << Qt::endl;
         return 3;
     }
@@ -38,6 +38,7 @@ static int runGamepadOverlay(int argc, char *argv[], int rotation, bool editMode
     engine.rootContext()->setContextProperty(QStringLiteral("pad"), &pad);
     engine.rootContext()->setContextProperty(QStringLiteral("overlayRotation"), rotation);
     engine.rootContext()->setContextProperty(QStringLiteral("overlayEdit"), editMode);
+    engine.rootContext()->setContextProperty(QStringLiteral("overlayStandalone"), standalone);
     QObject::connect(
         &engine, &QQmlApplicationEngine::objectCreationFailed, &app,
         []() { QCoreApplication::exit(-1); }, Qt::QueuedConnection);
@@ -50,10 +51,13 @@ int main(int argc, char *argv[])
 {
     for (int i = 1; i < argc; ++i) {
         if (qstrcmp(argv[i], "--gamepad-overlay") == 0) {
-            bool edit = false;
-            for (int j = i + 1; j < argc; ++j)
+            bool edit = false, standalone = false;
+            for (int j = i + 1; j < argc; ++j) {
                 edit = edit || qstrcmp(argv[j], "--edit") == 0;
-            return runGamepadOverlay(argc, argv, i + 1 < argc ? QByteArray(argv[i + 1]).toInt() : 0, edit);
+                standalone = standalone || qstrcmp(argv[j], "--standalone") == 0;
+            }
+            return runGamepadOverlay(argc, argv, i + 1 < argc ? QByteArray(argv[i + 1]).toInt() : 0,
+                                     edit || standalone, standalone);
         }
     }
 

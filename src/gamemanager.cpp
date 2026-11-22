@@ -253,8 +253,12 @@ void GameManager::setGamepadGame(const QString &gameId, bool active, int rotatio
             m_overlayProcess->deleteLater();
             m_overlayProcess = nullptr;
         });
-        m_overlayProcess->start(QCoreApplication::applicationFilePath(),
-                                {QStringLiteral("--gamepad-overlay"), QString::number(rotation)});
+        QStringList overlayArgs{QStringLiteral("--gamepad-overlay"), QString::number(rotation)};
+        if (m_gamepadEditOnLaunch) {
+            overlayArgs << QStringLiteral("--edit");
+            setGamepadEditOnLaunch(false);
+        }
+        m_overlayProcess->start(QCoreApplication::applicationFilePath(), overlayArgs);
     } else if (!active && m_gamepadGames.isEmpty() && m_overlayProcess) {
         m_gamepadGames.clear();
         m_overlayProcess->terminate();
@@ -279,7 +283,15 @@ void GameManager::editGamepadLayout()
     });
     m_editProcess->start(QCoreApplication::applicationFilePath(),
                          {QStringLiteral("--gamepad-overlay"), QString::number(rotation),
-                          QStringLiteral("--edit")});
+                          QStringLiteral("--standalone")});
+}
+
+void GameManager::setGamepadEditOnLaunch(bool on)
+{
+    if (m_gamepadEditOnLaunch == on)
+        return;
+    m_gamepadEditOnLaunch = on;
+    Q_EMIT gamepadEditOnLaunchChanged();
 }
 
 void GameManager::saveLibrary()

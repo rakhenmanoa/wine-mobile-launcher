@@ -334,6 +334,14 @@ Kirigami.ScrollablePage {
                 onClicked: GameManager.editGamepadLayout()
             }
 
+            QQC2.CheckBox {
+                Layout.fillWidth: true
+                enabled: fullscreenCheck.checked && gamepadCheck.checked
+                text: "Éditer la disposition au prochain lancement (dans le jeu)"
+                checked: GameManager.gamepadEditOnLaunch
+                onToggled: GameManager.gamepadEditOnLaunch = checked
+            }
+
             QQC2.Label {
                 Layout.fillWidth: true
                 wrapMode: Text.WordWrap
