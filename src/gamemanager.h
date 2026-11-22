@@ -71,6 +71,8 @@ public:
     Q_INVOKABLE void refreshIcon(int row);
 
     Q_INVOKABLE void launchGame(int row);
+    // Ouvre l'éditeur de disposition de la manette à l'écran (overlay en mode édition).
+    Q_INVOKABLE void editGamepadLayout();
     Q_INVOKABLE void stopGame(int row);
 
     Q_INVOKABLE void createPrefix(const QString &prefixPath);
@@ -146,6 +148,7 @@ private:
     QString m_defaultPrefixDir;
     bool m_verboseTerminal = false;
     QString m_viewMode;
+    QProcess *m_editProcess = nullptr;    // « --gamepad-overlay --edit » : éditeur de disposition
     QProcess *m_overlayProcess = nullptr; // « --gamepad-overlay » : manette virtuelle + overlay
     QSet<QString> m_gamepadGames; // jeux en cours avec la manette à l'écran
     int m_gamepadRotation = 0;

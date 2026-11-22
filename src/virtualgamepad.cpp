@@ -1,6 +1,13 @@
 #include "virtualgamepad.h"
 
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QProcess>
+#include <QSaveFile>
+#include <QStandardPaths>
 #include <QRegion>
 #include <QWindow>
 
@@ -221,4 +228,35 @@ void VirtualGamepad::setInputMask(QWindow *window, const QVariantList &rects)
                         qRound(map.value(QStringLiteral("h")).toDouble()));
     }
     window->setMask(region);
+}
+
+// Chemin explicite : le lanceur et le processus overlay n'ont pas le même nom
+// d'application, donc pas le même dossier AppConfigLocation.
+QString VirtualGamepad::layoutPath()
+{
+    return QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation)
+           + QStringLiteral("/wine-mobile-launcher/gamepad-layout.json");
+}
+
+QVariantMap VirtualGamepad::loadLayout() const
+{
+    QFile file(layoutPath());
+    if (!file.open(QIODevice::ReadOnly))
+        return {};
+    const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
+    return doc.isObject() ? doc.object().toVariantMap() : QVariantMap();
+}
+
+void VirtualGamepad::saveLayout(const QVariantMap &layout) const
+{
+    QDir().mkpath(QFileInfo(layoutPath()).absolutePath());
+    if (layout.isEmpty()) {
+        QFile::remove(layoutPath());
+        return;
+    }
+    QSaveFile file(layoutPath());
+    if (!file.open(QIODevice::WriteOnly))
+        return;
+    file.write(QJsonDocument(QJsonObject::fromVariantMap(layout)).toJson());
+    file.commit();
 }

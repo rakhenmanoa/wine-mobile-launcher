@@ -264,6 +264,24 @@ void GameManager::setGamepadGame(const QString &gameId, bool active, int rotatio
         Q_EMIT gamepadActiveChanged();
 }
 
+void GameManager::editGamepadLayout()
+{
+    if (m_editProcess)
+        return;
+    const QString direction = qEnvironmentVariable("WML_ROTATION", QStringLiteral("right"));
+    const int rotation = direction == QLatin1String("left") ? 270
+                       : direction == QLatin1String("inverted") ? 180 : 90;
+    m_editProcess = new QProcess(this);
+    m_editProcess->setProcessChannelMode(QProcess::MergedChannels);
+    connect(m_editProcess, &QProcess::finished, this, [this](int, QProcess::ExitStatus) {
+        m_editProcess->deleteLater();
+        m_editProcess = nullptr;
+    });
+    m_editProcess->start(QCoreApplication::applicationFilePath(),
+                         {QStringLiteral("--gamepad-overlay"), QString::number(rotation),
+                          QStringLiteral("--edit")});
+}
+
 void GameManager::saveLibrary()
 {
     QJsonArray games;

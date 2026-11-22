@@ -326,6 +326,14 @@ Kirigami.ScrollablePage {
                 onToggled: root.scheduleSave()
             }
 
+            QQC2.Button {
+                Layout.fillWidth: true
+                enabled: fullscreenCheck.checked && gamepadCheck.checked
+                text: "Modifier la disposition des boutons…"
+                icon.name: "configure-symbolic"
+                onClicked: GameManager.editGamepadLayout()
+            }
+
             QQC2.Label {
                 Layout.fillWidth: true
                 wrapMode: Text.WordWrap
