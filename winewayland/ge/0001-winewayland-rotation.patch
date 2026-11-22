@@ -1,8 +1,29 @@
 diff --git a/dlls/winewayland.drv/wayland_output.c b/dlls/winewayland.drv/wayland_output.c
-index 203a415..309e36b 100644
+index 203a415..77d80fa 100644
 --- a/dlls/winewayland.drv/wayland_output.c
 +++ b/dlls/winewayland.drv/wayland_output.c
-@@ -147,7 +147,7 @@ static void wayland_output_done(struct wayland_output *output)
+@@ -33,6 +33,20 @@
+ 
+ WINE_DEFAULT_DEBUG_CHANNEL(waylanddrv);
+ 
++double wayland_res_cap_factor = 1.0;
++
++int wayland_max_height(void)
++{
++    static int cap = -1;
++    if (cap < 0)
++    {
++        const char *e = getenv("WINE_WAYLAND_MAX_HEIGHT");
++        cap = e ? atoi(e) : 0;
++        if (cap < 0) cap = 0;
++    }
++    return cap;
++}
++
+ static const int32_t default_refresh = 60000;
+ static uint32_t next_output_id = 0;
+ 
+@@ -147,12 +161,30 @@ static void wayland_output_done(struct wayland_output *output)
          RB_FOR_EACH_ENTRY(mode, &output->pending.modes, struct wayland_output_mode, entry)
          {
              /* Need to flip w,h when the output is transformed by 90 or 270 degrees */
@@ -11,7 +32,30 @@ index 203a415..309e36b 100644
              {
                  const int32_t temp = mode->width;
                  mode->width = mode->height;
-@@ -322,6 +322,12 @@ static void zxdg_output_v1_handle_logical_size(void *data,
+                 mode->height = temp;
+             }
++            /* WINE_WAYLAND_MAX_HEIGHT: cap the resolution Wine reports for the output (shorter side),
++             * keeping the aspect ratio. The window scale is adjusted to match (wayland_res_cap_factor),
++             * so that the compositor still shows a full screen window. */
++            if (wayland_max_height() > 0)
++            {
++                const int32_t side = min(mode->width, mode->height);
++                if (side > wayland_max_height())
++                {
++                    const double f = (double)wayland_max_height() / side;
++                    const int32_t w = (int32_t)(mode->width * f + 0.5);
++                    const int32_t h = (int32_t)(mode->height * f + 0.5);
++                    if (mode == output->pending.current_mode)
++                        wayland_res_cap_factor = (double)w / mode->width;
++                    TRACE("capping mode %dx%d -> %dx%d\n", mode->width, mode->height, w, h);
++                    mode->width = w;
++                    mode->height = h;
++                }
++            }
+             wayland_output_state_add_mode(&output->current,
+                                           mode->width, mode->height, mode->refresh,
+                                           mode == output->pending.current_mode);
+@@ -322,6 +354,12 @@ static void zxdg_output_v1_handle_logical_size(void *data,
  {
      struct wayland_output *output = data;
      TRACE("logical_w=%d logical_h=%d\n", width, height);
@@ -108,7 +152,7 @@ index a16fc4f..70f0690 100644
      NtUserGetCursorPos(&cursor_pos);
      hwnd = NtUserGetForegroundWindow();
 diff --git a/dlls/winewayland.drv/wayland_surface.c b/dlls/winewayland.drv/wayland_surface.c
-index 4226912..b82aa47 100644
+index 4226912..ee3ec00 100644
 --- a/dlls/winewayland.drv/wayland_surface.c
 +++ b/dlls/winewayland.drv/wayland_surface.c
 @@ -41,6 +41,8 @@
@@ -129,6 +173,15 @@ index 4226912..b82aa47 100644
          surface->pending.state = config_state;
          if (!surface->pending.decor)
              surface->pending.decor = surface->current.decor;
+@@ -1323,7 +1325,7 @@ void wp_fractional_scale_handle_scale(void* user_data,
+ {
+     struct wayland_win_data *data;
+     struct wayland_surface *surface;
+-    double scale = scale_fixed / 120.0;
++    double scale = scale_fixed / 120.0 * wayland_res_cap_factor;
+     HWND hwnd = user_data;
+ 
+     TRACE("hwnd=%p scale=%lf\n", hwnd, scale);
 @@ -1491,6 +1493,7 @@ struct wayland_surface *wayland_surface_create(HWND hwnd)
      }
  
@@ -692,14 +745,18 @@ index e9a57f7..88344c4 100644
      wl_list_init(&touch->touch_points);
      wl_touch_add_listener(touch->wl_touch, &wl_touch_listener, NULL);
 diff --git a/dlls/winewayland.drv/waylanddrv.h b/dlls/winewayland.drv/waylanddrv.h
-index 242262f..cd035fa 100644
+index 242262f..97bf72e 100644
 --- a/dlls/winewayland.drv/waylanddrv.h
 +++ b/dlls/winewayland.drv/waylanddrv.h
-@@ -598,6 +598,19 @@ BOOL wayland_surface_reconfigure(struct wayland_surface *surface);
+@@ -598,6 +598,23 @@ BOOL wayland_surface_reconfigure(struct wayland_surface *surface);
  BOOL wayland_surface_config_is_compatible(struct wayland_surface_config *conf, RECT rect,
                                            enum wayland_surface_config_state state);
  void wayland_surface_update_toplevel_parent(struct wayland_surface *surface);
 +int wayland_get_rotation(void);
++/* WINE_WAYLAND_MAX_HEIGHT: cap of the reported output resolution (shorter side, 0 = none) and the
++ * ratio capped/real width applied to the compositor scale. */
++int wayland_max_height(void);
++extern double wayland_res_cap_factor;
 +uint32_t wayland_get_buffer_transform(void);
 +void wayland_set_last_clip(const RECT *clip);
 +BOOL wayland_get_last_clip(RECT *clip);

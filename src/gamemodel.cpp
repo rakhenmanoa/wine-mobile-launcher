@@ -31,6 +31,7 @@ QVariant GameModel::data(const QModelIndex &index, int role) const
     case WaylandRole:     return g.wayland;
     case TouchMouseRole:  return g.touchMouse;
     case FsrRole:         return g.fsr;
+    case MaxHeightRole:   return g.maxHeight;
     case LastPlayedRole:  return g.lastPlayed;
     case RunningRole:     return m_runningIds.contains(g.id);
     }
@@ -55,6 +56,7 @@ QHash<int, QByteArray> GameModel::roleNames() const
         {WaylandRole,    "wayland"},
         {TouchMouseRole, "touchMouse"},
         {FsrRole,        "fsr"},
+        {MaxHeightRole,  "maxHeight"},
         {LastPlayedRole, "lastPlayed"},
         {RunningRole,    "running"}
     };
@@ -82,6 +84,7 @@ QVariantMap GameModel::get(int row) const
         {"wayland", g.wayland},
         {"touchMouse", g.touchMouse},
         {"fsr", g.fsr},
+        {"maxHeight", g.maxHeight},
         {"lastPlayed", g.lastPlayed},
         {"running",    m_runningIds.contains(g.id)}
     };

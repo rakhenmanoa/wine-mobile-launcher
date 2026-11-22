@@ -207,6 +207,7 @@ void GameManager::loadLibrary()
         game.wayland = obj.value(QLatin1String("wayland")).toBool();
         game.touchMouse = obj.value(QLatin1String("touchMouse")).toBool();
         game.fsr = obj.value(QLatin1String("fsr")).toBool();
+        game.maxHeight = obj.value(QLatin1String("maxHeight")).toInt();
         game.lastPlayed = static_cast<qint64>(obj.value(QLatin1String("lastPlayed")).toDouble());
         // Migration du cache v2 : les icônes automatiques extraites avant le
         // passage à la grande variante sont re-extraites au démarrage (une
@@ -316,6 +317,7 @@ void GameManager::saveLibrary()
         obj.insert(QLatin1String("wayland"), game.wayland);
         obj.insert(QLatin1String("touchMouse"), game.touchMouse);
         obj.insert(QLatin1String("fsr"), game.fsr);
+        obj.insert(QLatin1String("maxHeight"), game.maxHeight);
         obj.insert(QLatin1String("lastPlayed"), double(game.lastPlayed));
         games.append(obj);
     }
@@ -732,7 +734,7 @@ void GameManager::addGame(const QString &name, const QString &exePath, const QSt
                           const QString &prefixPath, const QString &wineBinary,
                           const QString &protonDir, const QString &iconPath, bool mangohud,
                           bool fullscreen, bool gamepad, bool zink,
-                          bool wayland, bool touchMouse, bool fsr)
+                          bool wayland, bool touchMouse, bool fsr, int maxHeight)
 {
     WineGame game;
     game.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
@@ -750,6 +752,7 @@ void GameManager::addGame(const QString &name, const QString &exePath, const QSt
     game.wayland = wayland;
     game.touchMouse = touchMouse;
     game.fsr = fsr;
+    game.maxHeight = maxHeight;
     // Icône automatique : si l'utilisateur n'a pas choisi d'image, tenter
     // l'extraction depuis l'exécutable (sans effet hors .exe / hors icoutils).
     if (game.iconPath.isEmpty()) {
@@ -773,7 +776,7 @@ void GameManager::updateGame(int row, const QString &name, const QString &exePat
                              const QString &args, const QString &prefixPath,
                              const QString &wineBinary, const QString &protonDir,
                              const QString &iconPath, bool mangohud, bool fullscreen,
-                             bool gamepad, bool zink, bool wayland, bool touchMouse, bool fsr)
+                             bool gamepad, bool zink, bool wayland, bool touchMouse, bool fsr, int maxHeight)
 {
     if (row < 0 || row >= m_model->rowCount())
         return;
@@ -793,6 +796,7 @@ void GameManager::updateGame(int row, const QString &name, const QString &exePat
     game.wayland = wayland;
     game.touchMouse = touchMouse;
     game.fsr = fsr;
+    game.maxHeight = maxHeight;
     // Icône automatique : extraction si aucune icône n'est définie, ou
     // re-extraction quand l'exécutable a changé et que l'icône actuelle est
     // celle du cache automatique — une image choisie manuellement reste.
@@ -901,6 +905,9 @@ void GameManager::launchGame(int row)
             }
             if (game.touchMouse)
                 gameEnv.insert(QStringLiteral("WINE_WAYLAND_TOUCH_MOUSE"), QStringLiteral("1"));
+            // Plafond de la résolution que le jeu voit pour l'écran (côté court)
+            if (game.maxHeight > 0)
+                gameEnv.insert(QStringLiteral("WINE_WAYLAND_MAX_HEIGHT"), QString::number(game.maxHeight));
             // FSR 1 : win32u (patch 0002) force le chemin « fullscreen hack » que Proton coupe en Wayland
             if (game.fsr) {
                 gameEnv.insert(QStringLiteral("WINE_FULLSCREEN_FORCE_FSHACK"), QStringLiteral("1"));
