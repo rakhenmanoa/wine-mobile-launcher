@@ -69,7 +69,7 @@ index 203a415..77d80fa 100644
      output->pending.logical_h = height;
      output->pending.flags |= WAYLAND_OUTPUT_LOGICAL_WH;
 diff --git a/dlls/winewayland.drv/wayland_pointer.c b/dlls/winewayland.drv/wayland_pointer.c
-index a16fc4f..70f0690 100644
+index a16fc4f..ed57d8e 100644
 --- a/dlls/winewayland.drv/wayland_pointer.c
 +++ b/dlls/winewayland.drv/wayland_pointer.c
 @@ -491,8 +491,7 @@ static void wayland_motion_delta_to_window(struct wayland_surface *surface,
@@ -143,11 +143,22 @@ index a16fc4f..70f0690 100644
  BOOL WAYLAND_ClipCursor(const RECT *clip, BOOL reset)
  {
      struct wayland_pointer *pointer = &process_wayland.pointer;
-@@ -1196,6 +1222,7 @@ BOOL WAYLAND_ClipCursor(const RECT *clip, BOOL reset)
+@@ -1196,6 +1222,18 @@ BOOL WAYLAND_ClipCursor(const RECT *clip, BOOL reset)
      POINT cursor_pos, warp;
  
      TRACE("clip=%s reset=%d\n", wine_dbgstr_rect(clip), reset);
 +    wayland_set_last_clip(reset ? NULL : clip);
++
++    /* Test option: record the game's clip but never confine the pointer. */
++    {
++        static int ignore_clip = -1;
++        if (ignore_clip < 0)
++        {
++            const char *e = getenv("WINE_WAYLAND_IGNORE_CLIP");
++            ignore_clip = e && atoi(e) != 0;
++        }
++        if (ignore_clip) clip = NULL;
++    }
  
      NtUserGetCursorPos(&cursor_pos);
      hwnd = NtUserGetForegroundWindow();
