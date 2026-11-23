@@ -126,6 +126,7 @@ Réglages par jeu, enregistrés automatiquement :
 
 - **Démarrer en plein écran** et **Wayland** : avec Wayland, le jeu tourne avec `PROTON_ENABLE_WAYLAND=1`, sans sway ; en plein écran l'image est pivotée par Wine (`WINE_WAYLAND_ROTATE`, sens réglable avec `WML_ROTATION=left|inverted`) et garde ses proportions (`WINE_WAYLAND_KEEP_ASPECT`).
 - **Tactile émulé en souris** : le premier doigt déplace le curseur et clique (`WINE_WAYLAND_TOUCH_MOUSE`).
+- **Pavé tactile pendant le contrôle à la souris** : pour les jeux qui lisent la souris par recentrage du curseur (combats de Child of Light), le doigt devient un pavé tactile relatif (déplacements relatifs, tap = clic, doigt immobile = clic maintenu) ; hors de ce mode, le tactile reste direct (`WINE_WAYLAND_TOUCH_PAD_COMBAT`).
 - **Résolution maximale vue par le jeu** : aucune limite, 1080p, 900p, 720p, 576p, 480p ou 407p (taille logique de Plasma) ; plafonne la résolution d'écran annoncée à Wine (`WINE_WAYLAND_MAX_HEIGHT`) pour que les jeux qui s'adaptent à l'écran rendent plus petit.
 - **Agrandissement FSR** : quand le jeu rend plus petit que l'écran, l'image est agrandie en FSR 1 plutôt qu'étirée (`WINE_FULLSCREEN_FORCE_FSHACK` + `WINE_FULLSCREEN_FSR`).
 - **OpenGL via Zink**, **Manette à l'écran** (voir plus bas ; seulement en plein écran).

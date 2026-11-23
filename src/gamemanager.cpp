@@ -206,6 +206,7 @@ void GameManager::loadLibrary()
         game.zink = obj.value(QLatin1String("zink")).toBool();
         game.wayland = obj.value(QLatin1String("wayland")).toBool();
         game.touchMouse = obj.value(QLatin1String("touchMouse")).toBool();
+        game.touchPad = obj.value(QLatin1String("touchPad")).toBool();
         game.fsr = obj.value(QLatin1String("fsr")).toBool();
         game.maxHeight = obj.value(QLatin1String("maxHeight")).toInt();
         game.lastPlayed = static_cast<qint64>(obj.value(QLatin1String("lastPlayed")).toDouble());
@@ -316,6 +317,7 @@ void GameManager::saveLibrary()
         obj.insert(QLatin1String("zink"), game.zink);
         obj.insert(QLatin1String("wayland"), game.wayland);
         obj.insert(QLatin1String("touchMouse"), game.touchMouse);
+        obj.insert(QLatin1String("touchPad"), game.touchPad);
         obj.insert(QLatin1String("fsr"), game.fsr);
         obj.insert(QLatin1String("maxHeight"), game.maxHeight);
         obj.insert(QLatin1String("lastPlayed"), double(game.lastPlayed));
@@ -734,7 +736,7 @@ void GameManager::addGame(const QString &name, const QString &exePath, const QSt
                           const QString &prefixPath, const QString &wineBinary,
                           const QString &protonDir, const QString &iconPath, bool mangohud,
                           bool fullscreen, bool gamepad, bool zink,
-                          bool wayland, bool touchMouse, bool fsr, int maxHeight)
+                          bool wayland, bool touchMouse, bool fsr, int maxHeight, bool touchPad)
 {
     WineGame game;
     game.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
@@ -751,6 +753,7 @@ void GameManager::addGame(const QString &name, const QString &exePath, const QSt
     game.zink = zink;
     game.wayland = wayland;
     game.touchMouse = touchMouse;
+    game.touchPad = touchPad;
     game.fsr = fsr;
     game.maxHeight = maxHeight;
     // Icône automatique : si l'utilisateur n'a pas choisi d'image, tenter
@@ -776,7 +779,8 @@ void GameManager::updateGame(int row, const QString &name, const QString &exePat
                              const QString &args, const QString &prefixPath,
                              const QString &wineBinary, const QString &protonDir,
                              const QString &iconPath, bool mangohud, bool fullscreen,
-                             bool gamepad, bool zink, bool wayland, bool touchMouse, bool fsr, int maxHeight)
+                             bool gamepad, bool zink, bool wayland, bool touchMouse, bool fsr, int maxHeight,
+                             bool touchPad)
 {
     if (row < 0 || row >= m_model->rowCount())
         return;
@@ -795,6 +799,7 @@ void GameManager::updateGame(int row, const QString &name, const QString &exePat
     game.zink = zink;
     game.wayland = wayland;
     game.touchMouse = touchMouse;
+    game.touchPad = touchPad;
     game.fsr = fsr;
     game.maxHeight = maxHeight;
     // Icône automatique : extraction si aucune icône n'est définie, ou
@@ -905,6 +910,9 @@ void GameManager::launchGame(int row)
             }
             if (game.touchMouse)
                 gameEnv.insert(QStringLiteral("WINE_WAYLAND_TOUCH_MOUSE"), QStringLiteral("1"));
+            // Pavé tactile relatif quand le jeu pilote la souris par recentrage (combats)
+            if (game.touchPad)
+                gameEnv.insert(QStringLiteral("WINE_WAYLAND_TOUCH_PAD_COMBAT"), QStringLiteral("1"));
             // Plafond de la résolution que le jeu voit pour l'écran (côté court)
             if (game.maxHeight > 0)
                 gameEnv.insert(QStringLiteral("WINE_WAYLAND_MAX_HEIGHT"), QString::number(game.maxHeight));

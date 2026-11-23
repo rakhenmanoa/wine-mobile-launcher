@@ -32,6 +32,7 @@ Kirigami.ScrollablePage {
             zinkCheck.checked = g.zink
             waylandCheck.checked = g.wayland
             touchMouseCheck.checked = g.touchMouse
+            touchPadCheck.checked = g.touchPad
             fsrCheck.checked = g.fsr
             maxHeightBox.currentIndex = Math.max(0, maxHeightBox.values.indexOf(g.maxHeight))
         }
@@ -75,14 +76,16 @@ Kirigami.ScrollablePage {
                                    protonField.text, iconField.text, mangohudCheck.checked,
                                    fullscreenCheck.checked, gamepadCheck.checked, zinkCheck.checked,
                                    waylandCheck.checked, touchMouseCheck.checked, fsrCheck.checked,
-                                   maxHeightBox.values[maxHeightBox.currentIndex])
+                                   maxHeightBox.values[maxHeightBox.currentIndex],
+                                   touchPadCheck.checked)
         } else {
             GameManager.addGame(nameField.text, exeField.text, argsField.text,
                                 prefixField.text, wineField.text, protonField.text,
                                 iconField.text, mangohudCheck.checked,
                                 fullscreenCheck.checked, gamepadCheck.checked, zinkCheck.checked,
                                    waylandCheck.checked, touchMouseCheck.checked, fsrCheck.checked,
-                                   maxHeightBox.values[maxHeightBox.currentIndex])
+                                   maxHeightBox.values[maxHeightBox.currentIndex],
+                                   touchPadCheck.checked)
         }
         if (closePage)
             applicationWindow().pageStack.layers.clear()
@@ -304,6 +307,22 @@ Kirigami.ScrollablePage {
                 wrapMode: Text.WordWrap
                 opacity: 0.8
                 text: "Le premier doigt déplace le curseur et clique (WINE_WAYLAND_TOUCH_MOUSE). Utile pour les jeux qui n'écoutent que la souris. Nécessite le pilote Wayland."
+            }
+
+            QQC2.CheckBox {
+                id: touchPadCheck
+                onToggled: root.scheduleSave()
+
+                enabled: waylandCheck.checked
+                Layout.fillWidth: true
+                text: "Pavé tactile pendant le contrôle à la souris"
+            }
+
+            QQC2.Label {
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                opacity: 0.8
+                text: "Quand le jeu pilote la souris en recentrant le curseur (combats de Child of Light), le doigt devient un pavé tactile : il déplace le curseur de façon relative et un tap clique ; un doigt immobile maintient le clic. Le reste du temps, le tactile reste direct (WINE_WAYLAND_TOUCH_PAD_COMBAT). Nécessite le pilote Wayland."
             }
 
             QQC2.Label {

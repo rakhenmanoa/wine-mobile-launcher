@@ -30,6 +30,7 @@ QVariant GameModel::data(const QModelIndex &index, int role) const
     case ZinkRole:        return g.zink;
     case WaylandRole:     return g.wayland;
     case TouchMouseRole:  return g.touchMouse;
+    case TouchPadRole:    return g.touchPad;
     case FsrRole:         return g.fsr;
     case MaxHeightRole:   return g.maxHeight;
     case LastPlayedRole:  return g.lastPlayed;
@@ -55,6 +56,7 @@ QHash<int, QByteArray> GameModel::roleNames() const
         {ZinkRole,       "zink"},
         {WaylandRole,    "wayland"},
         {TouchMouseRole, "touchMouse"},
+        {TouchPadRole,   "touchPad"},
         {FsrRole,        "fsr"},
         {MaxHeightRole,  "maxHeight"},
         {LastPlayedRole, "lastPlayed"},
@@ -83,6 +85,7 @@ QVariantMap GameModel::get(int row) const
         {"zink", g.zink},
         {"wayland", g.wayland},
         {"touchMouse", g.touchMouse},
+        {"touchPad", g.touchPad},
         {"fsr", g.fsr},
         {"maxHeight", g.maxHeight},
         {"lastPlayed", g.lastPlayed},

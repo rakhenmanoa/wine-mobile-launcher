@@ -601,7 +601,7 @@ index 4226912..b13506d 100644
          if (stack_above_parent)
              wayland_surface_attach_opaque_carrier(surface);
 diff --git a/dlls/winewayland.drv/wayland_touch.c b/dlls/winewayland.drv/wayland_touch.c
-index e9a57f7..80b87a0 100644
+index e9a57f7..9b60c1c 100644
 --- a/dlls/winewayland.drv/wayland_touch.c
 +++ b/dlls/winewayland.drv/wayland_touch.c
 @@ -27,9 +27,13 @@
@@ -618,7 +618,7 @@ index e9a57f7..80b87a0 100644
  
  static LPARAM map_point_vscreen(double x, double y)
  {
-@@ -53,8 +57,256 @@ static void wayland_touch_point_to_window(struct wayland_surface *surface,
+@@ -53,8 +57,248 @@ static void wayland_touch_point_to_window(struct wayland_surface *surface,
                                            double surface_x, double surface_y,
                                            double *window_x, double *window_y)
  {
@@ -746,17 +746,9 @@ index e9a57f7..80b87a0 100644
 +    point->acc_y -= input.mi.dy;
 +    if (!input.mi.dx && !input.mi.dy) return;
 +
-+    {
-+        POINT before = {0}, after = {0};
-+
-+        NtUserGetCursorPos(&before);
-+        NtUserSendHardwareInput(hwnd, SEND_HWMSG_NO_RAW, &input, 0);
-+        NtUserSendHardwareInput(0, SEND_HWMSG_NO_MSG, &input, 0);
-+        NtUserGetCursorPos(&after);
-+        TRACE_(waylanddrv)("pad move hwnd=%p dx=%d dy=%d cursor=(%d,%d)->(%d,%d) got=(%d,%d)\n", hwnd,
-+                           (int)input.mi.dx, (int)input.mi.dy, (int)before.x, (int)before.y,
-+                           (int)after.x, (int)after.y, (int)(after.x - before.x), (int)(after.y - before.y));
-+    }
++    TRACE_(waylanddrv)("pad move hwnd=%p dx=%d dy=%d\n", hwnd, (int)input.mi.dx, (int)input.mi.dy);
++    NtUserSendHardwareInput(hwnd, SEND_HWMSG_NO_RAW, &input, 0);
++    NtUserSendHardwareInput(0, SEND_HWMSG_NO_MSG, &input, 0);
 +}
 +
 +/* État du doigt « pavé » (un seul à la fois). Maintien : doigt immobile au moins
@@ -877,7 +869,7 @@ index e9a57f7..80b87a0 100644
  }
  
  static void touch_handle_down(void *private, struct wl_touch *wl_touch,
-@@ -66,10 +318,12 @@ static void touch_handle_down(void *private, struct wl_touch *wl_touch,
+@@ -66,10 +310,12 @@ static void touch_handle_down(void *private, struct wl_touch *wl_touch,
      struct wayland_touch_point *point = NULL;
      struct wayland_win_data *data = NULL;
      struct wayland_surface *surface;
@@ -891,7 +883,7 @@ index e9a57f7..80b87a0 100644
      if (!wl_surface) return;
  
      InterlockedExchange(&process_wayland.input_serial, serial);
-@@ -86,9 +340,20 @@ static void touch_handle_down(void *private, struct wl_touch *wl_touch,
+@@ -86,9 +332,20 @@ static void touch_handle_down(void *private, struct wl_touch *wl_touch,
                                    wl_fixed_to_double(y),
                                    &touch_x, &touch_y);
      point->xy = map_point_vscreen(touch_x, touch_y);
@@ -913,7 +905,7 @@ index e9a57f7..80b87a0 100644
  
      input.type = INPUT_HARDWARE;
      input.hi.uMsg = WM_POINTERDOWN;
-@@ -97,11 +362,24 @@ static void touch_handle_down(void *private, struct wl_touch *wl_touch,
+@@ -97,11 +354,24 @@ static void touch_handle_down(void *private, struct wl_touch *wl_touch,
                         POINTER_MESSAGE_FLAG_INCONTACT |
                         POINTER_MESSAGE_FLAG_NEW;
  
@@ -938,7 +930,7 @@ index e9a57f7..80b87a0 100644
      if (data) wayland_win_data_release(data);
  }
  
-@@ -132,6 +410,13 @@ static void touch_handle_up(void *private, struct wl_touch *wl_touch,
+@@ -132,6 +402,13 @@ static void touch_handle_up(void *private, struct wl_touch *wl_touch,
  
      wl_list_remove(&point->link);
  
@@ -952,7 +944,7 @@ index e9a57f7..80b87a0 100644
      input.type = INPUT_HARDWARE;
      input.hi.uMsg = WM_POINTERUP;
      input.hi.wParamL = id;
-@@ -141,6 +426,11 @@ static void touch_handle_up(void *private, struct wl_touch *wl_touch,
+@@ -141,6 +418,11 @@ static void touch_handle_up(void *private, struct wl_touch *wl_touch,
      TRACE("hwnd=%p id=%d\n", point->focused_hwnd, id);
  
      NtUserSendHardwareInput(point->focused_hwnd, 0, &input, point->xy);
@@ -964,7 +956,7 @@ index e9a57f7..80b87a0 100644
      free(point);
  }
  
-@@ -175,7 +465,22 @@ static void touch_handle_motion(void *private, struct wl_touch *wl_touch,
+@@ -175,7 +457,22 @@ static void touch_handle_motion(void *private, struct wl_touch *wl_touch,
      point->xy = map_point_vscreen(touch_x, touch_y);
      wayland_win_data_release(data);
  
@@ -988,7 +980,7 @@ index e9a57f7..80b87a0 100644
  
      TRACE("hwnd=%p pos=(%lf,%lf)\n", point->focused_hwnd, touch_x, touch_y);
  
-@@ -186,6 +491,7 @@ static void touch_handle_motion(void *private, struct wl_touch *wl_touch,
+@@ -186,6 +483,7 @@ static void touch_handle_motion(void *private, struct wl_touch *wl_touch,
                         POINTER_MESSAGE_FLAG_INCONTACT;
  
      NtUserSendHardwareInput(point->focused_hwnd, 0, &input, point->xy);
@@ -996,7 +988,7 @@ index e9a57f7..80b87a0 100644
  }
  
  static void touch_handle_frame(void *private, struct wl_touch *wl_touch) { }
-@@ -207,7 +513,19 @@ static void touch_handle_cancel(void *private, struct wl_touch *wl_touch)
+@@ -207,7 +505,19 @@ static void touch_handle_cancel(void *private, struct wl_touch *wl_touch)
      {
          input.hi.wParamL = point->id;
  
@@ -1016,7 +1008,7 @@ index e9a57f7..80b87a0 100644
          wl_list_remove(&point->link);
          free(point);
      }
-@@ -225,6 +543,7 @@ void wayland_touch_init(struct wl_touch *wl_touch)
+@@ -225,6 +535,7 @@ void wayland_touch_init(struct wl_touch *wl_touch)
  {
      struct wayland_touch *touch = &process_wayland.touch;
  

@@ -63,13 +63,15 @@ public:
                              const QString &wineBinary, const QString &protonDir,
                              const QString &iconPath, bool mangohud, bool fullscreen,
                              bool gamepad = false, bool zink = false,
-                             bool wayland = false, bool touchMouse = false, bool fsr = false, int maxHeight = 0);
+                             bool wayland = false, bool touchMouse = false, bool fsr = false, int maxHeight = 0,
+                             bool touchPad = false);
     Q_INVOKABLE void updateGame(int row, const QString &name, const QString &exePath,
                                 const QString &args, const QString &prefixPath,
                                 const QString &wineBinary, const QString &protonDir,
                                 const QString &iconPath, bool mangohud, bool fullscreen,
                                 bool gamepad = false, bool zink = false,
-                             bool wayland = false, bool touchMouse = false, bool fsr = false, int maxHeight = 0);
+                             bool wayland = false, bool touchMouse = false, bool fsr = false, int maxHeight = 0,
+                             bool touchPad = false);
     Q_INVOKABLE void removeGame(int row);
     // Re-extrait l'icône de l'exécutable d'un jeu (remplace l'icône actuelle).
     Q_INVOKABLE void refreshIcon(int row);

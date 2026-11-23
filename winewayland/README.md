@@ -24,6 +24,10 @@ et graphisme ») ; elles ne servent à la main que pour tester.
 | `WINE_WAYLAND_TOUCH_MOUSE=1` | Le premier doigt émule la souris (déplacement absolu + clic gauche). Par défaut le tactile n'envoie que les événements tactiles Windows. |
 | `WINE_WAYLAND_MAX_HEIGHT=<n>` | Plafonne la résolution d'écran annoncée à Wine (côté court, mêmes proportions ; ex. 576 → 1280×576 sur un écran 2712×1220). L'échelle fractionnaire des fenêtres est ajustée du même rapport pour que le compositeur affiche toujours un plein écran. Les jeux qui prennent la résolution de l'écran rendent donc plus petit. |
 | `WINE_WAYLAND_TOUCH_FLIP=x\|y\|xy` | Test : inverse les axes du tactile. |
+| `WINE_WAYLAND_TOUCH_PAD_COMBAT=1` | Pavé tactile relatif quand le jeu pilote la souris par recentrage : le doigt n'envoie plus de messages tactiles, seuls ses déplacements (souris + raw input) bougent le curseur ; un tap clique, un doigt immobile maintient le bouton gauche. Actif seulement si le jeu a demandé une zone `ClipCursor` plus étroite que la fenêtre **et** a recentré le curseur au centre dans les dernières secondes ; sinon (menus, exploration) le tactile natif est inchangé. |
+| `WINE_WAYLAND_TOUCH_PAD_GAIN=<x>` | Sensibilité du pavé (défaut 1.5). |
+| `WINE_WAYLAND_TOUCH_PAD_HOLD_MS=<ms>` | Durée d'immobilité qui maintient le clic (défaut 350). |
+| `WINE_WAYLAND_TOUCH_PAD_IDLE_MS=<ms>` | Délai sans recentrage du jeu au-delà duquel on revient au tactile natif (défaut 10000). |
 
 Avec `WINEDEBUG=+waylanddrv` (ou `+cursor` pour le tactile), le pilote trace la
 rotation, le plafond de résolution (`capping mode …`), le rectangle ajusté
