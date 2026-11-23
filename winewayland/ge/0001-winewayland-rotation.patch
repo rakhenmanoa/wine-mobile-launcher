@@ -602,7 +602,7 @@ index 4226912..b13506d 100644
          if (stack_above_parent)
              wayland_surface_attach_opaque_carrier(surface);
 diff --git a/dlls/winewayland.drv/wayland_touch.c b/dlls/winewayland.drv/wayland_touch.c
-index e9a57f7..a9272ee 100644
+index e9a57f7..8f2de34 100644
 --- a/dlls/winewayland.drv/wayland_touch.c
 +++ b/dlls/winewayland.drv/wayland_touch.c
 @@ -28,8 +28,10 @@
@@ -616,7 +616,7 @@ index e9a57f7..a9272ee 100644
  
  static LPARAM map_point_vscreen(double x, double y)
  {
-@@ -53,8 +55,68 @@ static void wayland_touch_point_to_window(struct wayland_surface *surface,
+@@ -53,8 +55,147 @@ static void wayland_touch_point_to_window(struct wayland_surface *surface,
                                            double surface_x, double surface_y,
                                            double *window_x, double *window_y)
  {
@@ -658,6 +658,85 @@ index e9a57f7..a9272ee 100644
 +}
 +
 +
++
++/* Mode « position virtuelle » (WINE_WAYLAND_TOUCH_VIRTUAL=1).
++ * En combat, le jeu déplace Igniculus de (position lue - centre) puis remet le
++ * curseur au centre, une fois par appui. On lui envoie donc
++ *   centre + (doigt - P)
++ * où P est la position (suivie par nos soins) d'Igniculus : il arrive sous le doigt.
++ * Variables : WINE_WAYLAND_TOUCH_VIRT_GAIN (sensibilité du jeu, défaut 1),
++ * WINE_WAYLAND_TOUCH_VIRT_X / _Y (P initial, défaut centre). */
++static BOOL virt_valid = FALSE;
++static double virt_px, virt_py;
++
++static BOOL touch_virtual_enabled(void)
++{
++    const char *e = getenv("WINE_WAYLAND_TOUCH_VIRTUAL");
++    return e && atoi(e) != 0;
++}
++
++static double touch_virtual_gain(void)
++{
++    const char *e = getenv("WINE_WAYLAND_TOUCH_VIRT_GAIN");
++    double g = e ? atof(e) : 1.0;
++    return g > 0.01 ? g : 1.0;
++}
++
++/* Combat : le jeu a demandé une zone ClipCursor sensiblement plus étroite que la fenêtre. */
++static BOOL touch_virtual_in_combat(struct wayland_surface *surface)
++{
++    RECT clip;
++    int ww = surface->window.rect.right - surface->window.rect.left;
++    if (!wayland_get_last_clip(&clip)) return FALSE;
++    return (clip.right - clip.left) < ww - 20;
++}
++
++static double clampd(double v, double lo, double hi)
++{
++    return v < lo ? lo : (v > hi ? hi : v);
++}
++
++static void touch_virtual_begin(struct wayland_surface *surface, struct wayland_touch_point *point)
++{
++    const char *ex = getenv("WINE_WAYLAND_TOUCH_VIRT_X"), *ey = getenv("WINE_WAYLAND_TOUCH_VIRT_Y");
++    RECT *r = &surface->window.rect;
++
++    if (!virt_valid)
++    {
++        virt_px = ex ? atof(ex) : (r->left + r->right) / 2.0;
++        virt_py = ey ? atof(ey) : (r->top + r->bottom) / 2.0;
++        virt_valid = TRUE;
++    }
++    point->virt = TRUE;
++    point->px = point->ax = virt_px;
++    point->py = point->ay = virt_py;
++}
++
++static LPARAM touch_virtual_map(struct wayland_surface *surface, struct wayland_touch_point *point,
++                                double fx, double fy)
++{
++    RECT *r = &surface->window.rect, clip = *r;
++    double cx = (r->left + r->right) / 2.0, cy = (r->top + r->bottom) / 2.0;
++    double g = touch_virtual_gain(), tx, ty, sx, sy;
++
++    wayland_get_last_clip(&clip);
++    /* Igniculus ne peut pas sortir de la zone demandée par le jeu */
++    tx = clampd(fx, clip.left, clip.right - 1);
++    ty = clampd(fy, clip.top, clip.bottom - 1);
++
++    /* position envoyée, bornée à la fenêtre (le message ne sait pas sortir de l'écran) */
++    sx = clampd(cx + (tx - point->px) / g, r->left, r->right - 1);
++    sy = clampd(cy + (ty - point->py) / g, r->top, r->bottom - 1);
++
++    /* P réellement atteint si le déplacement a été écrêté */
++    point->ax = point->px + (sx - cx) * g;
++    point->ay = point->py + (sy - cy) * g;
++
++    TRACE_(waylanddrv)("virtual finger=(%.1f,%.1f) target=(%.1f,%.1f) P=(%.1f,%.1f) sent=(%.1f,%.1f) reach=(%.1f,%.1f)\n",
++                       fx, fy, tx, ty, point->px, point->py, sx, sy, point->ax, point->ay);
++    return map_point_vscreen(sx, sy);
++}
++
 +static int touch_mouse_emul_id = -1;
 +
 +static BOOL touch_mouse_emulation_enabled(void)
@@ -687,7 +766,7 @@ index e9a57f7..a9272ee 100644
  }
  
  static void touch_handle_down(void *private, struct wl_touch *wl_touch,
-@@ -66,10 +128,12 @@ static void touch_handle_down(void *private, struct wl_touch *wl_touch,
+@@ -66,10 +207,12 @@ static void touch_handle_down(void *private, struct wl_touch *wl_touch,
      struct wayland_touch_point *point = NULL;
      struct wayland_win_data *data = NULL;
      struct wayland_surface *surface;
@@ -701,10 +780,21 @@ index e9a57f7..a9272ee 100644
      if (!wl_surface) return;
  
      InterlockedExchange(&process_wayland.input_serial, serial);
-@@ -86,9 +150,16 @@ static void touch_handle_down(void *private, struct wl_touch *wl_touch,
+@@ -85,10 +228,26 @@ static void touch_handle_down(void *private, struct wl_touch *wl_touch,
+     wayland_touch_point_to_window(surface, wl_fixed_to_double(x),
                                    wl_fixed_to_double(y),
                                    &touch_x, &touch_y);
-     point->xy = map_point_vscreen(touch_x, touch_y);
+-    point->xy = map_point_vscreen(touch_x, touch_y);
++    if (touch_virtual_enabled() && touch_virtual_in_combat(surface))
++    {
++        touch_virtual_begin(surface, point);
++        point->xy = touch_virtual_map(surface, point, touch_x, touch_y);
++    }
++    else
++    {
++        virt_valid = FALSE;
++        point->xy = map_point_vscreen(touch_x, touch_y);
++    }
 +    surface_rect_copy = surface->window.rect;
 +    client_rect_copy = surface->window.client_rect;
 +    scale_copy = surface->window.scale;
@@ -719,7 +809,7 @@ index e9a57f7..a9272ee 100644
  
      input.type = INPUT_HARDWARE;
      input.hi.uMsg = WM_POINTERDOWN;
-@@ -98,10 +169,16 @@ static void touch_handle_down(void *private, struct wl_touch *wl_touch,
+@@ -98,10 +257,16 @@ static void touch_handle_down(void *private, struct wl_touch *wl_touch,
                         POINTER_MESSAGE_FLAG_NEW;
  
      NtUserSendHardwareInput(hwnd, 0, &input, point->xy);
@@ -736,7 +826,22 @@ index e9a57f7..a9272ee 100644
      if (data) wayland_win_data_release(data);
  }
  
-@@ -141,6 +218,11 @@ static void touch_handle_up(void *private, struct wl_touch *wl_touch,
+@@ -132,6 +297,14 @@ static void touch_handle_up(void *private, struct wl_touch *wl_touch,
+ 
+     wl_list_remove(&point->link);
+ 
++    if (point->virt)
++    {
++        virt_px = point->ax;
++        virt_py = point->ay;
++        virt_valid = TRUE;
++        TRACE_(waylanddrv)("virtual P=(%.1f,%.1f) after up\n", virt_px, virt_py);
++    }
++
+     input.type = INPUT_HARDWARE;
+     input.hi.uMsg = WM_POINTERUP;
+     input.hi.wParamL = id;
+@@ -141,6 +314,11 @@ static void touch_handle_up(void *private, struct wl_touch *wl_touch,
      TRACE("hwnd=%p id=%d\n", point->focused_hwnd, id);
  
      NtUserSendHardwareInput(point->focused_hwnd, 0, &input, point->xy);
@@ -748,8 +853,13 @@ index e9a57f7..a9272ee 100644
      free(point);
  }
  
-@@ -175,7 +257,7 @@ static void touch_handle_motion(void *private, struct wl_touch *wl_touch,
-     point->xy = map_point_vscreen(touch_x, touch_y);
+@@ -172,10 +350,11 @@ static void touch_handle_motion(void *private, struct wl_touch *wl_touch,
+     wayland_touch_point_to_window(surface, wl_fixed_to_double(x),
+                                   wl_fixed_to_double(y),
+                                   &touch_x, &touch_y);
+-    point->xy = map_point_vscreen(touch_x, touch_y);
++    if (point->virt) point->xy = touch_virtual_map(surface, point, touch_x, touch_y);
++    else point->xy = map_point_vscreen(touch_x, touch_y);
      wayland_win_data_release(data);
  
 -    if (old_xy != point->xy) return;
@@ -757,7 +867,7 @@ index e9a57f7..a9272ee 100644
  
      TRACE("hwnd=%p pos=(%lf,%lf)\n", point->focused_hwnd, touch_x, touch_y);
  
-@@ -186,6 +268,7 @@ static void touch_handle_motion(void *private, struct wl_touch *wl_touch,
+@@ -186,6 +365,7 @@ static void touch_handle_motion(void *private, struct wl_touch *wl_touch,
                         POINTER_MESSAGE_FLAG_INCONTACT;
  
      NtUserSendHardwareInput(point->focused_hwnd, 0, &input, point->xy);
@@ -765,7 +875,7 @@ index e9a57f7..a9272ee 100644
  }
  
  static void touch_handle_frame(void *private, struct wl_touch *wl_touch) { }
-@@ -208,6 +291,11 @@ static void touch_handle_cancel(void *private, struct wl_touch *wl_touch)
+@@ -208,6 +388,11 @@ static void touch_handle_cancel(void *private, struct wl_touch *wl_touch)
          input.hi.wParamL = point->id;
  
          NtUserSendHardwareInput(point->focused_hwnd, 0, &input, point->xy);
@@ -777,7 +887,7 @@ index e9a57f7..a9272ee 100644
          wl_list_remove(&point->link);
          free(point);
      }
-@@ -225,6 +313,7 @@ void wayland_touch_init(struct wl_touch *wl_touch)
+@@ -225,6 +410,7 @@ void wayland_touch_init(struct wl_touch *wl_touch)
  {
      struct wayland_touch *touch = &process_wayland.touch;
  
@@ -786,10 +896,20 @@ index e9a57f7..a9272ee 100644
      wl_list_init(&touch->touch_points);
      wl_touch_add_listener(touch->wl_touch, &wl_touch_listener, NULL);
 diff --git a/dlls/winewayland.drv/waylanddrv.h b/dlls/winewayland.drv/waylanddrv.h
-index 242262f..97bf72e 100644
+index 242262f..e28b87a 100644
 --- a/dlls/winewayland.drv/waylanddrv.h
 +++ b/dlls/winewayland.drv/waylanddrv.h
-@@ -598,6 +598,23 @@ BOOL wayland_surface_reconfigure(struct wayland_surface *surface);
+@@ -194,6 +194,9 @@ struct wayland_touch_point
+     LPARAM xy;
+     HWND focused_hwnd;
+     int32_t id;
++    BOOL virt;            /* combat: position virtuelle centre + (doigt - P) */
++    double px, py;        /* P au début du geste */
++    double ax, ay;        /* P atteint (cible bornée) */
+ };
+ 
+ struct wayland_touch
+@@ -598,6 +601,23 @@ BOOL wayland_surface_reconfigure(struct wayland_surface *surface);
  BOOL wayland_surface_config_is_compatible(struct wayland_surface_config *conf, RECT rect,
                                            enum wayland_surface_config_state state);
  void wayland_surface_update_toplevel_parent(struct wayland_surface *surface);
